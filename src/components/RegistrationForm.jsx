@@ -33,6 +33,7 @@ export const RegistrationForm = ({ onSuccess, restaurantId, referidoPor }) => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (loading) return;
     
     // 1. Validaciones básicas
     if (!formData.nombre.trim() || !formData.telefono.trim() || !formData.fechaNacimiento) {
@@ -43,36 +44,40 @@ export const RegistrationForm = ({ onSuccess, restaurantId, referidoPor }) => {
     setLoading(true);
 
     try {
-      // 2. VALIDAR SI EL CLIENTE YA EXISTE EN ESTE RESTAURANTE (Lógica Supabase)
+      // 2. BUSCAR SI EL CLIENTE YA EXISTE (Por teléfono)
       const { data: existente, error: errorBusqueda } = await supabase
         .from('clientes')
-        .select('id')
+        .select('id, nombre, puntos')
         .eq('telefono', formData.telefono.trim())
-        .eq('restaurante_id', restaurantId)
         .maybeSingle();
 
       if (errorBusqueda) throw errorBusqueda;
 
       if (existente) {
-        alert("Ya estás registrado en este restaurante. ¡Solo puedes unirte una vez!");
+        // --- SI EXISTE, NO CREAMOS OTRO, USAMOS EL MISMO ---
+        console.log("Cliente ya registrado. Redirigiendo a éxito...");
+        
+        if (onSuccess) {
+          // MODIFICACIÓN: Pasamos también los puntos actuales
+          onSuccess(existente.id, existente.nombre, existente.puntos); 
+        }
         setLoading(false);
         return; 
       }
 
-      // 3. SI NO EXISTE, PROCEDER CON EL REGISTRO
-      // MODIFICADO: Se añade fecha_nacimiento al objeto sin alterar el resto
+      // 3. SI NO EXISTE, PROCEDER CON EL REGISTRO NORMAL
       const { data, error: errorInsert } = await supabase
         .from('clientes')
         .insert([
           {
             nombre: formData.nombre.trim(),
             telefono: formData.telefono.trim(),
-            fecha_nacimiento: formData.fechaNacimiento, // <--- CAMBIO: Se agrega este campo
-            puntos: 2, // Valor inicial solicitado
-            origen: 'Registro Web', // Origen solicitado
-            restaurante_id: restaurantId, // Usamos el id que viene por props
+            fecha_nacimiento: formData.fechaNacimiento,
+            puntos: 2, 
+            origen: 'Registro Web',
+            restaurante_id: restaurantId,
             referidopor: referidoPor || "Directo (QR local)",
-            fecha_registro: new Date().toISOString() // Campo de fecha solicitado
+            fecha_registro: new Date().toISOString()
           }
         ])
         .select()
@@ -80,14 +85,14 @@ export const RegistrationForm = ({ onSuccess, restaurantId, referidoPor }) => {
       
       if (errorInsert) throw errorInsert;
 
-      // 5. NOTIFICAMOS ÉXITO AL PADRE (App.jsx)
       if (onSuccess) {
-        onSuccess(data.id, formData.nombre.trim()); 
+        // MODIFICACIÓN: Pasamos los 2 puntos iniciales del nuevo registro
+        onSuccess(data.id, formData.nombre.trim(), 2); 
       }
 
     } catch (error) {
       console.error("Error detallado:", error);
-      alert("Hubo un problema al registrar. Por favor, intenta de nuevo.");
+      alert("Hubo un problema al procesar los datos.");
     } finally {
       setLoading(false);
     }
@@ -119,6 +124,7 @@ export const RegistrationForm = ({ onSuccess, restaurantId, referidoPor }) => {
           id="whatsapp"
           type="tel" 
           required
+          pattern="[0-9]{10}"
           placeholder="Ej: 3206587850"
           className="form-input"
           value={formData.telefono}
@@ -149,7 +155,7 @@ export const RegistrationForm = ({ onSuccess, restaurantId, referidoPor }) => {
         {loading ? (
           <div className="loader-container">
             <div className="spinner"></div>
-            <span>Registrando...</span>
+            <span>Procesando...</span>
           </div>
         ) : (
           'Unirme al Club'

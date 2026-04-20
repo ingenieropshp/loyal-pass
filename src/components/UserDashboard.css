@@ -219,3 +219,66 @@
   cursor: pointer;
   width: 100%;
 }
+
+/* --- NUEVAS MEJORAS PARA QUE SEA RESPONSIVE Y ORGANIZADO --- */
+
+@media (max-width: 600px) {
+  /* Ajuste general del Dashboard */
+  .dashboard-container {
+    max-width: 90%;
+    padding: 1.5rem 1rem;
+  }
+
+  /* Ajuste para que las tablas de Administración se vean como tarjetas */
+  table, thead, tbody, th, td, tr {
+    display: block;
+    width: 100%;
+  }
+
+  thead tr {
+    position: absolute;
+    top: -9999px;
+    left: -9999px;
+  }
+
+  tr {
+    margin-bottom: 1rem;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 10px;
+    background: white;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+  }
+
+  td {
+    border: none;
+    position: relative;
+    padding-left: 50% !important;
+    text-align: right !important;
+    margin-bottom: 5px;
+    display: flex;
+    justify-content: space-between;
+  }
+
+  /* Este truco añade los nombres de las columnas a la izquierda */
+  td:before {
+    content: attr(data-label);
+    position: absolute;
+    left: 10px;
+    width: 45%;
+    padding-right: 10px;
+    white-space: nowrap;
+    text-align: left;
+    font-weight: bold;
+    color: #4F46E5;
+  }
+
+  /* El PIN maestro se ve más grande y centrado */
+  .pin-master-card {
+    padding: 1rem;
+  }
+
+  .pin-master-card h1 {
+    font-size: 2.5rem !important;
+  }
+}

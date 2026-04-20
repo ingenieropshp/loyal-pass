@@ -1,5 +1,10 @@
 import { useState, useEffect } from 'react';
 
+/**
+ * Hook para calcular la distancia en metros entre el usuario y una sede en tiempo real.
+ * @param {number|string} targetLat - Latitud de destino (de la DB)
+ * @param {number|string} targetLon - Longitud de destino (de la DB)
+ */
 export const useLocation = (targetLat, targetLon) => {
   const [distance, setDistance] = useState(null);
   const [error, setError] = useState(null);
@@ -67,13 +72,13 @@ export const useLocation = (targetLat, targetLon) => {
     } catch (e) {
       setError("Error al iniciar el seguimiento de ubicación");
     }
-
+    
     // LIMPIEZA: Apaga el GPS cuando el componente se destruye o cambian las coordenadas
     return () => {
       if (watchId !== null) {
         navigator.geolocation.clearWatch(watchId);
       }
-    };
+    };  
     
   }, [targetLat, targetLon]); // Se reinicia si cambias la ubicación en el Admin Panel
 

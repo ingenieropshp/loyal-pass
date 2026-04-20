@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react'; 
 import { RegistrationForm } from './components/RegistrationForm';
-import { SuccessCard } from './components/SuccessCard'; 
+import { SuccessCard, manejarRegistro } from './components/manejarRegistro'; 
 import { UserDashboard } from './components/UserDashboard'; 
 import { useLocation } from './hooks/useLocation';
 import { supabase } from './services/supabaseClient'; 
@@ -25,6 +25,7 @@ function App() {
   });
   
   const [nombreCliente, setNombreCliente] = useState(""); 
+  const [puntosCliente, setPuntosCliente] = useState(0); 
   const [isRegisteredNow, setIsRegisteredNow] = useState(false); 
   const [isVerifyingUser, setIsVerifyingUser] = useState(true); 
 
@@ -43,14 +44,13 @@ function App() {
     if (ref) setReferidoPor(ref);
   }, [params]);
 
-  // --- VERIFICACIÓN DE EXISTENCIA DEL USUARIO Y CARGA DE DATOS ---
+  // --- VERIFICACIÓN DE EXISTENCIA Y CARGA DE DATOS ---
   useEffect(() => {
     const inicializarDatos = async () => {
       if (!restauranteID) return;
       setIsVerifyingUser(true);
 
       try {
-        // 1. Buscamos la sede en 'configuracion'
         const esUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(restauranteID);
         let querySede = supabase.from('configuracion').select('id, nombre');
 
@@ -65,11 +65,10 @@ function App() {
           return;
         }
 
-        // 2. Verificar usuario si existe clienteId
         if (clienteId) {
           const { data: userDB, error: errorUser } = await supabase
             .from('clientes')
-            .select('id')
+            .select('id, nombre, puntos')
             .eq('id', clienteId)
             .maybeSingle();
 
@@ -79,10 +78,12 @@ function App() {
             delete registros[restauranteID];
             localStorage.setItem("bistro_multisede", JSON.stringify(registros));
             setClienteId(null);
+          } else {
+            setNombreCliente(userDB.nombre);
+            setPuntosCliente(userDB.puntos);
           }
         }
 
-        // 3. Traemos los datos de la tabla 'conexion'
         const { data: gpsData } = await supabase
           .from('conexion')
           .select('*')
@@ -91,7 +92,6 @@ function App() {
 
         if (gpsData) {
           setBistroLoc({ ...gpsData, nombre: sede.nombre });
-          console.log("✅ Datos cargados para:", sede.nombre);
         }
       } catch (err) {
         console.error("Error inesperado:", err);
@@ -101,7 +101,7 @@ function App() {
     };
 
     inicializarDatos();
-  }, [restauranteID]); // Solo depende del restauranteID para evitar bucles
+  }, [restauranteID, clienteId]);
 
   // --- CAMBIO DE SEDE DINÁMICO ---
   useEffect(() => {
@@ -110,7 +110,7 @@ function App() {
     if (idEnEstaSede !== clienteId) {
       setClienteId(idEnEstaSede);
     }
-  }, [restauranteID]); // Quitamos clienteId de aquí para evitar re-triggers innecesarios
+  }, [restauranteID]);
 
   // --- SUSCRIPCIÓN REALTIME ---
   useEffect(() => {
@@ -127,7 +127,6 @@ function App() {
           filter: `restaurante_id=eq.${bistroLoc.restaurante_id}`
         },
         (payload) => {
-          console.log("📍 GPS actualizado en tiempo real:", payload.new);
           setBistroLoc(prev => ({ ...prev, ...payload.new }));
         }
       )
@@ -144,20 +143,29 @@ function App() {
     bistroLoc?.longitud ?? null
   );
 
-  const handleSuccess = (nuevoId, nombre) => {
+  // --- LÓGICA DE ÉXITO ---
+  const handleSuccess = (nuevoId, nombre, puntos) => {
     const registros = JSON.parse(localStorage.getItem("bistro_multisede") || "{}");
     registros[restauranteID] = nuevoId;
     
     localStorage.setItem("bistro_multisede", JSON.stringify(registros));
+    
     setClienteId(nuevoId);
     setNombreCliente(nombre);
+    setPuntosCliente(puntos); 
+    
     setIsRegisteredNow(true); 
+  };
+
+  // --- NUEVA LÓGICA AL ENVIAR SOLICITADA ---
+  const alEnviar = (id, nombre, puntos) => {
+    handleSuccess(id, nombre, puntos);
   };
 
   const config = useMemo(() => {
     const radioBD = bistroLoc?.radio_aviso; 
     const mensajeBD = bistroLoc?.mensaje_promo;
- 
+
     return {
       radioAviso: radioBD ? Number(radioBD) : 800,
       mensaje: mensajeBD || 'CORTESÍA DISPONIBLE',
@@ -182,6 +190,8 @@ function App() {
         restauranteId={restauranteID} 
         nombreRestaurante={config.nombreBistro} 
         nombreCliente={nombreCliente}
+        clienteId={clienteId}
+        puntos={puntosCliente}
         onClose={() => setIsRegisteredNow(false)} 
       />
     );
@@ -229,7 +239,7 @@ function App() {
           <RegistrationForm 
             restaurantId={bistroLoc.restaurante_id} 
             referidoPor={referidoPor} 
-            onSuccess={(id, nombre) => handleSuccess(id, nombre)} 
+            onSuccess={alEnviar} 
           />
         )}
       </main>

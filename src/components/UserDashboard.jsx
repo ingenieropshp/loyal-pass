@@ -7,22 +7,20 @@ const calcularDistancia = (lat1, lon1, lat2, lon2) => {
   const dLat = (lat2 - lat1) * (Math.PI / 180);
   const dLon = (lon2 - lon1) * (Math.PI / 180);
   const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-            Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) * 
-            Math.sin(dLon / 2) * Math.sin(dLon / 2);
+            Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
   return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
 };
 
-// Se mantienen las props originales añadiendo las necesarias para la nueva lógica
 export const UserDashboard = ({ 
-  restauranteId, // Este ahora debe ser el UUID del restaurante (restaurante_id)
+  restauranteId, 
   clienteId, 
   nombreRestaurante,
-  distancia, // Añadido según tu requerimiento
-  esCerca: inicialEsCerca // Añadido según tu requerimiento
+  distancia, 
+  esCerca: inicialEsCerca 
 }) => {
   const [cliente, setCliente] = useState(null);
   const [procesando, setProcesando] = useState(false);
-  const [esCerca, setEsCerca] = useState(inicialEsCerca || false); // Se inicializa con la prop si existe
+  const [esCerca, setEsCerca] = useState(inicialEsCerca || false);
   const [mostrarPin, setMostrarPin] = useState(false);
   const [pinIngresado, setPinIngresado] = useState("");
 
@@ -43,7 +41,6 @@ export const UserDashboard = ({
         } else {
           console.warn("Cliente no encontrado en Supabase. Limpiando datos obsoletos...");
           const registros = JSON.parse(localStorage.getItem("bistro_multisede") || "{}");
-          // Se usa el restauranteId (UUID) para limpiar el registro correcto
           delete registros[restauranteId];
           localStorage.setItem("bistro_multisede", JSON.stringify(registros));
           window.location.reload();
@@ -86,64 +83,56 @@ export const UserDashboard = ({
     setProcesando(true);
     try {
       const { data: restData, error } = await supabase
-        .from('configuracion')
+        .from('conexion') 
         .select('latitud, longitud, radio_aviso')
-        .eq('id', restauranteId) // Buscamos por el UUID real del restaurante
+        .eq('restaurante_id', restauranteId)
         .maybeSingle();
 
       if (error || !restData) {
-        alert("Error: No se encontró la configuración de la sede.");
+        alert("No se pudo obtener la ubicación de esta sede.");
         setProcesando(false);
         return;
       }
 
-      const latRestaurante = restData.latitud;
-      const lonRestaurante = restData.longitud;
-      const radioAviso = restData.radio_aviso || 100;
-      
-      const geoOptions = {
-        enableHighAccuracy: true,
-        timeout: 15000, 
-        maximumAge: 0  
-      };
+      const rLat = parseFloat(restData.latitud);
+      const rLon = parseFloat(restData.longitud);
+      const radioPermitido = restData.radio_aviso || 200;
 
       navigator.geolocation.getCurrentPosition(async (pos) => {
-        const distMetros = calcularDistancia(
-          pos.coords.latitude, 
-          pos.coords.longitude, 
-          latRestaurante, 
-          lonRestaurante
-        ) * 1000;
-        
-        console.log(`[GPS] Distancia: ${distMetros.toFixed(2)}m | Radio Permitido: ${radioAviso}m`);
+        const userLat = pos.coords.latitude;
+        const userLon = pos.coords.longitude;
+
+        const distKm = calcularDistancia(userLat, userLon, rLat, rLon);
+        const distMetros = distKm * 1000;
+        const esExito = distMetros <= radioPermitido;
 
         try {
           await supabase.from('metricas_proximidad').insert([{
             cliente: cliente?.nombre || "Anónimo",
             restaurante: nombreRestaurante,
-            restaurante_id: restauranteId, // Guardamos con el UUID correcto
+            restaurante_id: restauranteId,
             distancia: Math.round(distMetros),
             dentro_del_rango_800: distMetros <= 800,
-            es_exito_total: distMetros <= radioAviso
+            es_exito_total: esExito
           }]);
         } catch (err) {
           console.error("Error al guardar métricas:", err);
         }
 
-        if (distMetros <= radioAviso) {
+        if (esExito) {
           setEsCerca(true);
           setMostrarPin(true);
         } else {
-          alert(`📍 Estás a ${distMetros.toFixed(0)} metros. \n\nPara confirmar tu llegada y sumar puntos, debes estar a menos de ${radioAviso} metros de ${nombreRestaurante}.`);
+          alert(`📍 Estás a ${Math.round(distMetros)}m. \n\nPara confirmar tu llegada y sumar puntos, debes estar a menos de ${radioPermitido}m de ${nombreRestaurante}.`);
         }
         setProcesando(false);
-      }, (error) => {
+      }, (err) => {
         let msg = "Por favor activa el GPS para confirmar tu llegada.";
-        if (error.code === 1) msg = "Debes permitir el acceso a la ubicación en tu navegador.";
-        if (error.code === 3) msg = "La señal del GPS es débil. Intenta de nuevo en un espacio más abierto.";
+        if (err.code === 1) msg = "Debes permitir el acceso a la ubicación en tu navegador.";
+        if (err.code === 3) msg = "La señal del GPS es débil. Intenta de nuevo en un espacio abierto.";
         alert(msg);
         setProcesando(false);
-      }, geoOptions);
+      }, { enableHighAccuracy: true, timeout: 15000 });
 
     } catch (e) {
       console.error(e);
@@ -153,19 +142,25 @@ export const UserDashboard = ({
 
   const manejarConfirmacionFinal = async () => {
     setProcesando(true);
-    const hoy = new Date();
-    const dia = String(hoy.getDate()).padStart(2, '0'); 
-    const mes = String(hoy.getMonth() + 1).padStart(2, '0'); 
-    const pinEsperado = dia + mes; 
-
+    
     try {
-      if (pinIngresado !== pinEsperado) {
-        alert(`❌ PIN incorrecto. Solicita el código de hoy (${dia}/${mes}) al mesero.`);
+      // --- NUEVO: CONSULTA EN TIEMPO REAL DEL PIN ---
+      const { data: dbCliente, error: dbError } = await supabase
+        .from('clientes')
+        .select('pin_individual, puntos')
+        .eq('id', clienteId)
+        .single();
+
+      if (dbError || !dbCliente) throw new Error("Error al verificar el PIN.");
+
+      // Validamos contra el dato recién traído de la base de datos
+      if (pinIngresado !== dbCliente.pin_individual) {
+        alert(`❌ PIN incorrecto. Solicita el código actualizado al mesero.`);
         setProcesando(false);
         return;
       }
 
-      const nuevosPuntos = (cliente.puntos || 0) + 2;
+      const nuevosPuntos = (dbCliente.puntos || 0) + 2;
       const updates = {
         puntos: nuevosPuntos,
         ultima_visita: new Date().toISOString(),
@@ -185,9 +180,8 @@ export const UserDashboard = ({
 
       setCliente(prev => ({ 
         ...prev, 
-        puntos: nuevosPuntos,
-        reclamo_pendiente: nuevosPuntos >= 20 ? true : prev.reclamo_pendiente,
-        fecha_cumplimiento: nuevosPuntos >= 20 ? updates.fecha_cumplimiento : prev.fecha_cumplimiento
+        ...updates,
+        pin_individual: dbCliente.pin_individual // Sincronizamos el nuevo PIN en el estado local
       }));
       
       if (nuevosPuntos >= 20) {
@@ -223,11 +217,7 @@ export const UserDashboard = ({
   return (
     <div className="dashboard-container animate-fade-in">
       <span className="gift-icon">🎁</span>
-
-      <h2 className="welcome-title">
-        ¡LISTO, {cliente.nombre?.toUpperCase()}!
-      </h2>
-      
+      <h2 className="welcome-title">¡LISTO, {cliente.nombre?.toUpperCase()}!</h2>
       <p className="subtitle">Ahora eres embajador de <strong>{nombreRestaurante}</strong>.</p>
 
       {cliente.reclamo_pendiente && (
@@ -244,18 +234,12 @@ export const UserDashboard = ({
               </div>
             </div>
             <div className="coupon-right">
-              <div className="coupon-id">
-                {clienteId.toString().substring(0, 5).toUpperCase()}
-              </div>
+              <div className="coupon-id">{clienteId.toString().substring(0, 5).toUpperCase()}</div>
             </div>
             <div className="punch-hole-top"></div>
             <div className="punch-hole-bottom"></div>
           </div>
-          
-          <button 
-            onClick={enviarRecordatorioWhatsApp}
-            className="btn-whatsapp-remind"
-          >
+          <button onClick={enviarRecordatorioWhatsApp} className="btn-whatsapp-remind">
             📩 Guardar cupón en WhatsApp
           </button>
         </div>
@@ -291,18 +275,12 @@ export const UserDashboard = ({
           </div>
         )}
 
-        <button 
-          onClick={compartirInvitacion}
-          className="btn-share"
-          style={{ marginTop: mostrarPin ? '1.5rem' : '0' }}
-        >
+        <button onClick={compartirInvitacion} className="btn-share" style={{ marginTop: mostrarPin ? '1.5rem' : '0' }}>
           📢 INVITAR UN AMIGO
         </button>
       </div>
 
-      <p className="footer-text">
-        Cada vez que nos visites, confirma tu llegada para ganar premios.
-      </p>
+      <p className="footer-text">Cada vez que nos visites, confirma tu llegada para ganar premios.</p>
     </div>
   );
 };
