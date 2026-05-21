@@ -1,182 +1,144 @@
-/* --- SISTEMA DE DISEÑO BISTRO ACTUALIZADO --- */
-:root {
-  --bg: #ffffff;
-  --bg-subtle: #f8fafc;
-  --text: #475569;
-  --text-h: #0f172a;
-  --border: #e2e8f0;
-  --accent: #8b5cf6;
-  --accent-rgb: 139, 92, 246;
-  --accent-bg: #f5f3ff;
-  --accent-border: #ddd6fe;
-  --shadow-premium: 0 10px 40px -10px rgba(0,0,0,0.08);
-  --code-bg: #f1f5f9;
-}
-
-body {
-  margin: 0;
-  font-family: 'Plus Jakarta Sans', sans-serif;
-  background-color: var(--bg-subtle);
-  color: var(--text);
-  /* Evita el scroll horizontal accidental en móviles */
-  overflow-x: hidden; 
-}
-
-/* Layouts */
+/* ===== APP LAYOUT ===== */
 .main-wrapper {
-  display: flex; 
-  flex-direction: column; 
-  align-items: center; 
-  justify-content: flex-start; 
-  min-height: 100vh; 
-  padding: 1.5rem; /* Reducido ligeramente para ganar espacio en móviles */
-  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 100vh;
+  padding: 1.5rem 1rem 3rem;
   width: 100%;
+  max-width: 480px;
+  margin: 0 auto;
 }
 
-/* Contenedor del Formulario */
 main {
   width: 100%;
-  max-width: 450px; 
   display: flex;
   flex-direction: column;
   align-items: center;
 }
 
-/* Animaciones */
-.animate-fade-in { animation: fadeIn 0.8s ease forwards; }
-@keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-
-.animate-pulse { animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
-@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
-
-/* Botones con optimización táctil */
-.btn-submit, .btn-whatsapp {
-  width: 100%; 
-  padding: 1.2rem; 
-  border-radius: 1.2rem; 
-  border: none;
-  background: var(--accent); 
-  color: white; 
-  font-weight: 900; 
-  cursor: pointer;
-  transition: transform 0.1s; 
-  text-decoration: none; 
-  display: block; 
-  text-align: center;
-  -webkit-tap-highlight-color: transparent;
+/* ===== HEADER ===== */
+.bistro-title {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 3.2rem;
+  letter-spacing: -0.04em;
+  color: var(--text-h);
+  line-height: 1;
 }
 
-.btn-submit:active { transform: scale(0.98); }
+.bistro-title .dot { color: var(--coral); }
 
-/* Formulario Cliente Responsive */
-.registration-card {
-  background: var(--bg); 
-  padding: 2rem; /* Un poco menos de padding para pantallas pequeñas */
-  border-radius: 2.2rem;
-  border: 1px solid var(--border); 
-  box-shadow: var(--shadow-premium); 
-  width: 100%;
-  box-sizing: border-box;
-}
-
-.form-input {
-  width: 100%; 
-  padding: 1rem; 
-  border-radius: 1.2rem; 
-  border: 2px solid var(--border);
-  background: var(--bg-subtle); 
-  outline: none; 
-  transition: all 0.3s; 
-  box-sizing: border-box;
-  font-size: 16px; /* CRÍTICO: Evita el zoom automático en iPhone al enfocar */
-}
-
-/* Badge de Proximidad y Ubicación (Responsive) */
-.proximity-badge, .location-badge {
+/* ===== PROXIMITY BADGE ===== */
+.proximity-badge {
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 14px 16px;
+  border-radius: var(--r-lg);
+  background: var(--coral-light);
+  border: 1px solid var(--coral-border);
+  margin-bottom: 1.5rem;
+  transition: all 0.3s ease;
+}
+
+.proximity-badge.near {
+  background: var(--green-light);
+  border-color: var(--green-border);
+}
+
+.prox-icon-wrap {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--r-sm);
+  background: var(--coral);
+  display: flex;
   align-items: center;
   justify-content: center;
-  text-align: center;
-  margin-bottom: 2.5rem;
-  padding: 1.2rem;
-  border-radius: 2rem;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  box-shadow: var(--shadow-premium);
-  width: 95%; /* Ocupa casi todo el ancho en móviles */
-  max-width: fit-content;
-  cursor: pointer;
-  user-select: none;
-  -webkit-tap-highlight-color: transparent;
-  transition: all 0.2s ease;
+  font-size: 18px;
+  flex-shrink: 0;
+  transition: background 0.3s;
 }
 
-.location-badge:active, .proximity-badge:active {
-  transform: scale(0.96);
-  background-color: #f8fafc;
-}
+.proximity-badge.near .prox-icon-wrap { background: var(--green); }
 
-/* Estilos de Texto dentro del Badge */
-.location-text {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-}
-
-.estás-a {
-  font-size: 0.65rem;
-  font-weight: 800;
-  color: #94a3b8;
+.prox-label {
+  font-size: 9px;
+  font-weight: 600;
   letter-spacing: 0.1em;
   text-transform: uppercase;
+  color: #993C1D;
+  margin-bottom: 2px;
 }
 
-.distancia-km {
-  font-size: 1.3rem;
-  font-weight: 900;
-  color: var(--text-h);
+.proximity-badge.near .prox-label { color: #0F6E56; }
+
+.prox-distance {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.2rem;
+  color: #4A1B0C;
+  line-height: 1;
 }
 
-/* Animación del Icono */
-.pin-icon {
-  font-size: 1.5rem;
-  animation: float 3s ease-in-out infinite;
-}
+.proximity-badge.near .prox-distance { color: #04342C; }
 
-@keyframes float {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-6px); }
-}
-
-/* Tablas Admin Responsivas */
-.table-responsive { 
-  overflow-x: auto; 
-  -webkit-overflow-scrolling: touch; /* Scroll suave en iOS */
-  border-radius: 1rem;
-}
-
-/* Media Query para pantallas muy pequeñas */
-@media (max-width: 380px) {
-  .registration-card { padding: 1.5rem; }
-  .bistro-title { font-size: 2.2rem !important; }
-}
-
-.main-wrapper {
-  max-width: 500px;
-  margin: 0 auto;
-  padding: 20px;
-  min-height: 100vh;
+.gps-loader {
+  font-size: 0.8rem;
+  color: var(--text);
+  opacity: 0.6;
+  margin-bottom: 1.5rem;
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  gap: 6px;
 }
 
-.animate-fade-in {
-  animation: fadeIn 0.5s ease-in;
+/* ===== ERROR ALERT ===== */
+.error-alert {
+  width: 100%;
+  background: #FEF2F2;
+  color: #991B1B;
+  border: 1px solid #FECACA;
+  border-radius: var(--r-md);
+  padding: 10px 14px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  margin-bottom: 1rem;
 }
 
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
+/* ===== LOADER SCREEN ===== */
+.loader-spinner {
+  width: 36px;
+  height: 36px;
+  border: 3px solid var(--border);
+  border-top-color: var(--coral);
+  border-radius: 50%;
+  animation: spin 0.75s linear infinite;
+}
+
+/* ===== ANIMATIONS ===== */
+@keyframes spin    { to { transform: rotate(360deg); } }
+@keyframes fadeUp  { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes bounceSlow { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
+
+.animate-fade-in     { animation: fadeUp 0.5s ease-out forwards; }
+.animate-bounce-slow { animation: bounceSlow 2.5s ease-in-out infinite; }
+
+/* ===== FOOTER ===== */
+.version-footer {
+  margin-top: 3rem;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  opacity: 0.3;
+  color: var(--text);
+  text-align: center;
+}
+
+/* ===== RESPONSIVE ===== */
+@media (max-width: 380px) {
+  .bistro-title  { font-size: 2.6rem; }
+  .main-wrapper  { padding: 1rem 0.875rem 2.5rem; }
 }

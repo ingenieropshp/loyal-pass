@@ -1,278 +1,273 @@
 import { useState } from 'react';
-import { supabase } from '../services/supabaseClient'; // Importación de tu cliente Supabase
+import { supabase } from '../services/supabaseClient';
 
-// Recibe onSuccess, restaurantId y referidoPor desde App.js
 export const RegistrationForm = ({ onSuccess, restaurantId, referidoPor }) => {
-  const [formData, setFormData] = useState({
-    nombre: '',
-    telefono: '',
-    fechaNacimiento: ''
-  });
-  const [loading, setLoading] = useState(false);
-
-  // --- ESTADO PARA EL MODAL DE TÉRMINOS ---
+  const [formData, setFormData] = useState({ nombre: '', telefono: '', fechaNacimiento: '' });
+  const [loading,  setLoading]  = useState(false);
   const [mostrarTerminos, setMostrarTerminos] = useState(false);
 
-  // --- LÓGICA DE RANGO DE FECHAS ---
   const hoy = new Date();
-  const fechaMaxima = hoy.toISOString().split("T")[0];
-  const hace90Anios = new Date();
-  hace90Anios.setFullYear(hoy.getFullYear() - 90);
-  const fechaMinima = hace90Anios.toISOString().split("T")[0];
+  const fechaMaxima = hoy.toISOString().split('T')[0];
+  const hace90     = new Date(); hace90.setFullYear(hoy.getFullYear() - 90);
+  const fechaMinima = hace90.toISOString().split('T')[0];
 
-  // Manejador genérico de inputs
   const handleChange = (e) => {
     const { id, value } = e.target;
-    
-    let fieldName = id;
-    if (id === 'whatsapp') fieldName = 'telefono';
-    if (id === 'nacimiento') fieldName = 'fechaNacimiento';
-
-    setFormData(prev => ({ ...prev, [fieldName]: value }));
+    const key = id === 'whatsapp' ? 'telefono' : id === 'nacimiento' ? 'fechaNacimiento' : id;
+    setFormData(prev => ({ ...prev, [key]: value }));
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (loading) return;
-    
-    // 1. Validaciones básicas
     if (!formData.nombre.trim() || !formData.telefono.trim() || !formData.fechaNacimiento) {
-      alert("Por favor, completa todos los campos.");
+      alert('Por favor, completa todos los campos.');
       return;
     }
-
     setLoading(true);
-
     try {
-      // 2. BUSCAR SI EL CLIENTE YA EXISTE (Por teléfono)
       const { data: existente, error: errorBusqueda } = await supabase
-        .from('clientes')
-        .select('id, nombre, puntos')
-        .eq('telefono', formData.telefono.trim())
-        .maybeSingle();
+        .from('clientes').select('id, nombre, puntos')
+        .eq('telefono', formData.telefono.trim()).maybeSingle();
 
       if (errorBusqueda) throw errorBusqueda;
 
       if (existente) {
-        // --- SI EXISTE, NO CREAMOS OTRO, USAMOS EL MISMO ---
-        console.log("Cliente ya registrado. Redirigiendo a éxito...");
-        
-        if (onSuccess) {
-          // MODIFICACIÓN: Pasamos también los puntos actuales
-          onSuccess(existente.id, existente.nombre, existente.puntos); 
-        }
+        onSuccess?.(existente.id, existente.nombre, existente.puntos);
         setLoading(false);
-        return; 
+        return;
       }
 
-      // 3. SI NO EXISTE, PROCEDER CON EL REGISTRO NORMAL
       const { data, error: errorInsert } = await supabase
-        .from('clientes')
-        .insert([
-          {
-            nombre: formData.nombre.trim(),
-            telefono: formData.telefono.trim(),
-            fecha_nacimiento: formData.fechaNacimiento,
-            puntos: 2, 
-            origen: 'Registro Web',
-            restaurante_id: restaurantId,
-            referidopor: referidoPor || "Directo (QR local)",
-            fecha_registro: new Date().toISOString()
-          }
-        ])
-        .select()
-        .single();
-      
+        .from('clientes').insert([{
+          nombre:          formData.nombre.trim(),
+          telefono:        formData.telefono.trim(),
+          fecha_nacimiento: formData.fechaNacimiento,
+          puntos:          2,
+          origen:          'Registro Web',
+          restaurante_id:  restaurantId,
+          referidopor:     referidoPor || 'Directo (QR local)',
+          fecha_registro:  new Date().toISOString(),
+        }]).select().single();
+
       if (errorInsert) throw errorInsert;
-
-      if (onSuccess) {
-        // MODIFICACIÓN: Pasamos los 2 puntos iniciales del nuevo registro
-        onSuccess(data.id, formData.nombre.trim(), 2); 
-      }
-
+      onSuccess?.(data.id, formData.nombre.trim(), 2);
     } catch (error) {
-      console.error("Error detallado:", error);
-      alert("Hubo un problema al procesar los datos.");
+      console.error('Error en registro:', error);
+      alert('Hubo un problema al procesar los datos. Intenta de nuevo.');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <form onSubmit={handleSubmit} className="registration-card animate-fade-in">
-      <header className="form-header">
-        <h2 className="form-title">Crea tu Perfil</h2>
-        <p className="form-subtitle">Únete y recibe beneficios exclusivos de Bistro.</p>
-      </header>
-
-      <div className="form-group">
-        <label htmlFor="nombre">Nombre Completo</label>
-        <input 
-          id="nombre"
-          type="text" 
-          required
-          placeholder="Ej: Juan Pérez"
-          className="form-input"
-          value={formData.nombre}
-          onChange={handleChange}
-        />
-      </div>
-
-      <div className="form-group">
-        <label htmlFor="whatsapp">Teléfono / WhatsApp</label>
-        <input 
-          id="whatsapp"
-          type="tel" 
-          required
-          pattern="[0-9]{10}"
-          placeholder="Ej: 3206587850"
-          className="form-input"
-          value={formData.telefono}
-          onChange={handleChange}
-        />
-      </div>
-
-      <div className="form-group">
-        <label htmlFor="nacimiento">Fecha de Nacimiento</label>
-        <input 
-          id="nacimiento"
-          type="date" 
-          required
-          min={fechaMinima}
-          max={fechaMaxima}
-          className="form-input"
-          value={formData.fechaNacimiento}
-          onChange={handleChange}
-        />
-      </div>
-
-      <button 
-        type="submit" 
-        disabled={loading}
-        className="btn-submit"
-        style={{ marginBottom: '15px' }}
-      >
-        {loading ? (
-          <div className="loader-container">
-            <div className="spinner"></div>
-            <span>Procesando...</span>
-          </div>
-        ) : (
-          'Unirme al Club'
-        )}
-      </button>
-
-      {/* --- SECCIÓN DE BENEFICIOS Y TÉRMINOS --- */}
-      <div style={{ 
-        backgroundColor: '#f3f4f6', 
-        borderRadius: '15px', 
-        padding: '16px', 
-        marginTop: '10px',
-        textAlign: 'left',
-        border: '1px solid #e5e7eb'
-      }}>
-        <p style={{ fontSize: '0.85rem', fontWeight: 'bold', color: '#374151', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-          ✨ Beneficios de Registro
-        </p>
-        
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          <div style={{ display: 'flex', alignItems: 'start', gap: '10px' }}>
-            <span style={{ fontSize: '1rem' }}>🎁</span>
-            <p style={{ fontSize: '0.75rem', color: '#4b5563', margin: 0 }}>
-              Gana <strong>2 puntos</strong> hoy mismo por registrarte y visitar el local.
-            </p>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'start', gap: '10px' }}>
-            <span style={{ fontSize: '1rem' }}>🎫</span>
-            <p style={{ fontSize: '0.75rem', color: '#4b5563', margin: 0 }}>
-              Al completar <strong>20 puntos</strong>, reclama tu premio sorpresa en caja.
-            </p>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'start', gap: '10px' }}>
-            <span style={{ fontSize: '1rem' }}>⏳</span>
-            <p style={{ fontSize: '0.75rem', color: '#4b5563', margin: 0 }}>
-              ¡No pierdas tus puntos! Expiran si no visitas el local en <strong>30 días</strong>.
-            </p>
-          </div>
+    <>
+      <form onSubmit={handleSubmit} style={styles.card}>
+        {/* Header */}
+        <div style={styles.header}>
+          <h2 style={styles.title}>Crea tu perfil</h2>
+          <p style={styles.subtitle}>Regístrate hoy y gana tus primeros 2 puntos</p>
         </div>
 
-        {/* --- BOTÓN PARA ABRIR TÉRMINOS --- */}
-        <p 
-          onClick={() => setMostrarTerminos(true)}
-          style={{ 
-            fontSize: '0.65rem', 
-            color: '#6366f1', 
-            marginTop: '12px', 
-            fontStyle: 'italic', 
-            cursor: 'pointer',
-            textDecoration: 'underline'
-          }}
-        >
-          * Al unirte, aceptas los Términos y Condiciones.
-        </p>
-      </div>
-      
-      <footer className="form-footer-note" style={{ marginTop: '15px' }}>
-        <span>🔒 Tus datos están protegidos</span>
-      </footer>
+        {/* Fields */}
+        <div style={styles.field}>
+          <label style={styles.label} htmlFor="nombre">Nombre completo</label>
+          <input id="nombre" type="text" required placeholder="Ej: Juan Pérez"
+            style={styles.input} value={formData.nombre} onChange={handleChange} />
+        </div>
 
-      {/* --- MODAL DE TÉRMINOS Y CONDICIONES --- */}
-      {mostrarTerminos && (
-        <div style={{
-          position: 'fixed',
-          top: 0, left: 0,
-          width: '100%', height: '100%',
-          backgroundColor: 'rgba(0,0,0,0.5)',
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          zIndex: 1000,
-          padding: '20px'
+        <div style={styles.field}>
+          <label style={styles.label} htmlFor="whatsapp">Teléfono / WhatsApp</label>
+          <input id="whatsapp" type="tel" required pattern="[0-9]{10}"
+            placeholder="Ej: 3206587850" style={styles.input}
+            value={formData.telefono} onChange={handleChange} />
+        </div>
+
+        <div style={{ ...styles.field, marginBottom: '1.25rem' }}>
+          <label style={styles.label} htmlFor="nacimiento">Fecha de nacimiento</label>
+          <input id="nacimiento" type="date" required min={fechaMinima} max={fechaMaxima}
+            style={styles.input} value={formData.fechaNacimiento} onChange={handleChange} />
+        </div>
+
+        {/* Submit */}
+        <button type="submit" disabled={loading} style={{
+          ...styles.btnJoin,
+          opacity: loading ? 0.75 : 1,
+          cursor:  loading ? 'not-allowed' : 'pointer',
         }}>
-          <div style={{
-            backgroundColor: 'white',
-            padding: '25px',
-            borderRadius: '20px',
-            maxWidth: '500px',
-            width: '100%',
-            maxHeight: '80vh',
-            overflowY: 'auto',
-            boxShadow: '0 10px 25px rgba(0,0,0,0.1)'
-          }}>
-            <h3 style={{ marginBottom: '15px', color: '#1e293b' }}>📜 Términos y Condiciones</h3>
-            
-            <div style={{ fontSize: '0.85rem', color: '#475569', lineHeight: '1.6', textAlign: 'left' }}>
-              <p><strong>1. Acumulación de Puntos:</strong> Recibirás 2 puntos por cada visita confirmada mediante la validación del PIN por parte del personal del restaurante.</p>
-              
-              <p style={{ marginTop: '10px' }}><strong>2. Premios:</strong> Al completar 20 puntos, se activará un cupón de premio. Este debe ser presentado al mesero para su redención.</p>
-              
-              <p style={{ marginTop: '10px' }}><strong>3. Vencimiento:</strong> Tus puntos acumulados tienen una validez de 30 días calendario. Si no registras una nueva visita en este periodo, el contador volverá a cero.</p>
-              
-              <p style={{ marginTop: '10px' }}><strong>4. Uso de Datos:</strong> Al registrarte, autorizas el tratamiento de tus datos básicos únicamente para la gestión de este programa de fidelización.</p>
-            </div>
+          {loading ? (
+            <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+              <span style={styles.spinner} /> Procesando…
+            </span>
+          ) : 'Unirme al club →'}
+        </button>
 
-            <button 
-              type="button"
-              onClick={() => setMostrarTerminos(false)}
-              style={{
-                marginTop: '20px',
-                width: '100%',
-                padding: '12px',
-                backgroundColor: '#6366f1',
-                color: 'white',
-                border: 'none',
-                borderRadius: '10px',
-                fontWeight: 'bold',
-                cursor: 'pointer'
-              }}
-            >
-              Cerrar y Aceptar
+        {/* Benefits strip */}
+        <div style={styles.benefitsRow}>
+          {[
+            { num: '+2', label: 'puntos hoy' },
+            { num: '20', label: 'para premio' },
+            { num: '30', label: 'días validez' },
+          ].map(({ num, label }) => (
+            <div key={label} style={styles.benefitPill}>
+              <span style={styles.benefitNum}>{num}</span>
+              <span style={styles.benefitLabel}>{label}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* Terms link */}
+        <p style={styles.termsLink} onClick={() => setMostrarTerminos(true)}>
+          * Al unirte aceptas los Términos y Condiciones
+        </p>
+
+        <p style={styles.secureNote}>🔒 Tus datos están protegidos</p>
+      </form>
+
+      {/* Modal de términos */}
+      {mostrarTerminos && (
+        <div style={styles.overlay}>
+          <div style={styles.modal}>
+            <h3 style={{ fontFamily: 'var(--font-display)', fontSize: '1.1rem', marginBottom: '1rem', color: 'var(--text-h)' }}>
+              Términos y Condiciones
+            </h3>
+            <div style={{ fontSize: '0.85rem', color: 'var(--text)', lineHeight: 1.7 }}>
+              <p><strong>1. Puntos:</strong> Recibirás 2 puntos por cada visita confirmada mediante PIN del personal.</p>
+              <p style={{ marginTop: 10 }}><strong>2. Premios:</strong> Al completar 20 puntos se activa un cupón. Preséntalo al mesero.</p>
+              <p style={{ marginTop: 10 }}><strong>3. Vencimiento:</strong> Los puntos vencen a los 30 días sin nueva visita.</p>
+              <p style={{ marginTop: 10 }}><strong>4. Datos:</strong> Autorizas el uso de tus datos solo para este programa de fidelización.</p>
+            </div>
+            <button type="button" onClick={() => setMostrarTerminos(false)} style={styles.btnJoin}>
+              Entendido
             </button>
           </div>
         </div>
       )}
-    </form>
+    </>
   );
+};
+
+/* ── Inline styles (evita dependencia de CSS externo para este componente) ── */
+const styles = {
+  card: {
+    background: 'var(--bg-card)',
+    padding: '1.75rem',
+    borderRadius: 'var(--r-xl)',
+    border: '1px solid var(--border)',
+    boxShadow: 'var(--shadow-card)',
+    width: '100%',
+  },
+  header: { marginBottom: '1.25rem' },
+  title: {
+    fontFamily: 'var(--font-display)',
+    fontSize: '1.3rem',
+    fontWeight: 700,
+    color: 'var(--text-h)',
+    marginBottom: 4,
+  },
+  subtitle: { fontSize: '0.85rem', color: 'var(--text)', opacity: 0.8 },
+  field:  { marginBottom: '1rem' },
+  label: {
+    display: 'block',
+    fontSize: '10px',
+    fontWeight: 600,
+    letterSpacing: '0.08em',
+    textTransform: 'uppercase',
+    color: 'var(--text)',
+    opacity: 0.7,
+    marginBottom: 5,
+  },
+  input: {
+    width: '100%',
+    padding: '11px 14px',
+    fontSize: 16, /* evita zoom en iPhone */
+    fontFamily: 'var(--font-body)',
+    fontWeight: 400,
+    background: 'var(--bg-subtle)',
+    border: '1.5px solid var(--border)',
+    borderRadius: 'var(--r-md)',
+    color: 'var(--text-h)',
+    outline: 'none',
+    transition: 'border-color 0.2s, box-shadow 0.2s',
+  },
+  btnJoin: {
+    display: 'block',
+    width: '100%',
+    padding: '13px',
+    marginTop: '4px',
+    background: 'var(--coral)',
+    color: 'white',
+    border: 'none',
+    borderRadius: 'var(--r-md)',
+    fontFamily: 'var(--font-display)',
+    fontWeight: 700,
+    fontSize: '0.9rem',
+    letterSpacing: '0.05em',
+    textTransform: 'uppercase',
+    cursor: 'pointer',
+    boxShadow: 'var(--shadow-btn)',
+    transition: 'background 0.2s, transform 0.1s',
+  },
+  spinner: {
+    display: 'inline-block',
+    width: 16, height: 16,
+    border: '2px solid rgba(255,255,255,0.35)',
+    borderTopColor: 'white',
+    borderRadius: '50%',
+    animation: 'spin 0.7s linear infinite',
+  },
+  benefitsRow: { display: 'flex', gap: 6, marginTop: 14 },
+  benefitPill: {
+    flex: 1,
+    background: 'var(--bg-subtle)',
+    borderRadius: 'var(--r-sm)',
+    padding: '8px 4px',
+    textAlign: 'center',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 2,
+  },
+  benefitNum: {
+    fontFamily: 'var(--font-display)',
+    fontWeight: 800,
+    fontSize: '1.15rem',
+    color: 'var(--coral)',
+    lineHeight: 1,
+  },
+  benefitLabel: { fontSize: '10px', color: 'var(--text)', fontWeight: 500 },
+  termsLink: {
+    marginTop: 12,
+    fontSize: '0.7rem',
+    color: 'var(--coral)',
+    textDecoration: 'underline',
+    cursor: 'pointer',
+    textAlign: 'center',
+    fontStyle: 'italic',
+  },
+  secureNote: {
+    marginTop: 8,
+    fontSize: '0.7rem',
+    textAlign: 'center',
+    opacity: 0.4,
+    color: 'var(--text)',
+  },
+  overlay: {
+    position: 'fixed', inset: 0,
+    background: 'rgba(0,0,0,0.45)',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    zIndex: 1000, padding: '1.5rem',
+  },
+  modal: {
+    background: 'var(--bg-card)',
+    borderRadius: 'var(--r-xl)',
+    padding: '1.5rem',
+    width: '100%',
+    maxWidth: 420,
+    maxHeight: '80vh',
+    overflowY: 'auto',
+    boxShadow: '0 20px 60px rgba(0,0,0,0.2)',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '1rem',
+  },
 };

@@ -1,342 +1,103 @@
-/* 
-  BISTRO CONNECT - PREMIUM DESIGN SYSTEM 
-  Expert CSS for High-End User Experience
-*/
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&display=swap');
 
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
-
+/* ===== BISTRO CONNECT — DESIGN SYSTEM ===== */
 :root {
-  /* Core Palette */
-  --bg: #ffffff;
-  --bg-subtle: #f8fafc;
-  --text: #475569;
-  --text-h: #0f172a;
-  --border: #e2e8f0;
-  --code-bg: #f1f5f9;
-  
-  /* Brand Accent - Royal Purple */
-  --accent: #8b5cf6;
-  --accent-hover: #7c3aed;
-  --accent-bg: #f5f3ff;
-  --accent-border: #ddd6fe;
-  
-  /* Feedback Colors */
-  --success: #10b981;
-  --error: #ef4444;
-  --warning: #f59e0b;
-  
-  /* Advanced Shadows */
-  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
-  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
-  --shadow-lg: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
-  --shadow-premium: 0 25px 50px -12px rgba(0, 0, 0, 0.08);
+  /* Brand */
+  --coral:        #E8563A;
+  --coral-hover:  #D44A2E;
+  --coral-light:  #FDF3F0;
+  --coral-border: #FBCAB8;
+  --green:        #1D9E75;
+  --green-light:  #F0FAF5;
+  --green-border: #A3E6C5;
+  --dark:         #1A1A1A;
+
+  /* Surface */
+  --bg:           #FFFFFF;
+  --bg-subtle:    #F7F6F3;
+  --bg-card:      #FFFFFF;
+  --text:         #5A5754;
+  --text-h:       #1A1A1A;
+  --border:       rgba(0,0,0,0.08);
+  --border-mid:   rgba(0,0,0,0.14);
+
+  /* Shadows */
+  --shadow-card: 0 1px 3px rgba(0,0,0,0.06), 0 8px 24px rgba(0,0,0,0.04);
+  --shadow-btn:  0 4px 14px rgba(232,86,58,0.35);
 
   /* Typography */
-  --sans: 'Plus Jakarta Sans', sans-serif;
-  --mono: 'JetBrains Mono', monospace;
+  --font-display: 'Syne', sans-serif;
+  --font-body:    'DM Sans', sans-serif;
+
+  /* Radii */
+  --r-sm:  8px;
+  --r-md:  12px;
+  --r-lg:  18px;
+  --r-xl:  24px;
 }
 
-/* Dark Mode Overrides */
+/* Dark mode */
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #0f172a;
-    --bg-subtle: #1e293b;
-    --text: #94a3b8;
-    --text-h: #f1f5f9;
-    --border: #334155;
-    --code-bg: #1e293b;
-    --accent: #a78bfa;
-    --accent-bg: rgba(167, 139, 250, 0.1);
-    --accent-border: rgba(167, 139, 250, 0.2);
-    --shadow-premium: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    --bg:         #141414;
+    --bg-subtle:  #1C1C1C;
+    --bg-card:    #1F1F1F;
+    --text:       #9A9793;
+    --text-h:     #F2F0EC;
+    --border:     rgba(255,255,255,0.07);
+    --border-mid: rgba(255,255,255,0.13);
+    --shadow-card: 0 1px 3px rgba(0,0,0,0.4), 0 8px 24px rgba(0,0,0,0.3);
+    --coral-light: rgba(232,86,58,0.12);
+    --coral-border: rgba(232,86,58,0.3);
+    --green-light: rgba(29,158,117,0.12);
+    --green-border: rgba(29,158,117,0.3);
   }
 }
 
-* {
-  box-sizing: border-box;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
+/* ===== RESET ===== */
+*, *::before, *::after { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
 
 body {
   margin: 0;
   padding: 0;
-  font-family: var(--sans);
-  background-color: var(--bg);
-  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 15px;
   line-height: 1.6;
+  background: var(--bg-subtle);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
 }
 
-/* --- Layout Structure --- */
 #root {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
 }
 
-/* --- Typography --- */
-h1, h2, h3 {
+h1, h2, h3, h4 {
+  font-family: var(--font-display);
   color: var(--text-h);
-  font-weight: 800;
-  letter-spacing: -0.04em;
+  margin: 0;
+  line-height: 1.1;
+  letter-spacing: -0.025em;
 }
 
-/* --- Premium Form Styling --- */
-form {
-  background: var(--bg);
-  padding: 2.5rem;
-  border-radius: 2rem;
-  border: 1px solid var(--border);
-  box-shadow: var(--shadow-premium);
-  max-width: 480px;
-  width: 100%;
-  margin: 0 auto;
-  transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-}
+p { margin: 0; }
 
-.form-group {
-  margin-bottom: 1.5rem;
-  position: relative;
-}
-
-label {
-  display: block;
-  font-size: 0.75rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  margin-bottom: 0.5rem;
-  color: var(--text);
-  opacity: 0.8;
-}
-
-input {
-  width: 100%;
-  padding: 1rem 1.25rem;
-  font-family: var(--sans);
-  font-size: 1rem;
-  font-weight: 500;
-  background-color: var(--bg-subtle);
-  border: 2px solid transparent;
-  border-radius: 1rem;
-  color: var(--text-h);
-  transition: all 0.3s ease;
-}
-
-input::placeholder {
-  color: var(--text);
-  opacity: 0.4;
-}
-
-input:focus {
-  outline: none;
-  background-color: var(--bg);
-  border-color: var(--accent);
-  box-shadow: 0 0 0 4px var(--accent-bg);
-}
-
-/* --- Primary Button --- */
-button[type="submit"] {
-  width: 100%;
-  padding: 1.15rem;
-  background: var(--accent);
-  color: white;
-  border: none;
-  border-radius: 1rem;
-  font-size: 0.9rem;
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.15em;
+button {
+  font-family: var(--font-body);
   cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 10px 20px -5px rgba(139, 92, 246, 0.4);
 }
 
-button[type="submit"]:hover {
-  background: var(--accent-hover);
-  transform: translateY(-2px);
-  box-shadow: 0 15px 25px -5px rgba(139, 92, 246, 0.5);
+input, select, textarea {
+  font-family: var(--font-body);
 }
 
-button[type="submit"]:active {
-  transform: translateY(0);
-}
-
-button[type="submit"]:disabled {
-  background: var(--border);
-  color: var(--text);
-  cursor: not-allowed;
-  box-shadow: none;
-  transform: none;
-}
-
-/* --- Admin Dashboard Elements --- */
-.admin-card {
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 1.5rem;
-  padding: 1.5rem;
-  transition: all 0.3s ease;
-}
-
-.admin-card:hover {
-  border-color: var(--accent);
-  box-shadow: var(--shadow-lg);
-}
-
-table {
-  width: 100%;
-  border-collapse: separate;
-  border-spacing: 0;
-  margin-top: 1rem;
-}
-
-th {
-  background: var(--bg-subtle);
-  padding: 1rem;
-  font-size: 0.7rem;
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: var(--text);
-  border-bottom: 1px solid var(--border);
-}
-
-td {
-  padding: 1.25rem 1rem;
-  border-bottom: 1px solid var(--border);
-  font-size: 0.9rem;
-}
-
-tr:last-child td {
-  border-bottom: none;
-}
-
-tr:hover td {
-  background-color: var(--bg-subtle);
-}
-
-/* --- Badges & Status --- */
-.badge {
-  padding: 0.4rem 0.8rem;
-  border-radius: 2rem;
-  font-size: 0.7rem;
-  font-weight: 800;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-}
-
-.badge-birthday {
-  background: var(--accent-bg);
-  color: var(--accent);
-  border: 1px solid var(--accent-border);
-}
-
-/* --- Animations --- */
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-.animate-fade-in {
-  animation: fadeIn 0.6s ease-out forwards;
-}
-
-/* Custom Scrollbar */
-::-webkit-scrollbar {
-  width: 8px;
-}
-
-::-webkit-scrollbar-track {
-  background: var(--bg);
-}
-
-::-webkit-scrollbar-thumb {
-  background: var(--border);
-  border-radius: 10px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: var(--text);
-} 
-
-/* Contenedor flotante para los botones de acceso */
-.nav-container {
-  position: fixed;
-  top: 2rem;
-  right: 2rem;
-  z-index: 100;
-}
-
-/* Botón de Acceso Admin (Estilo elegante) */
-.btn-admin-access {
-  background: var(--bg);
-  color: var(--text-h);
-  padding: 0.75rem 1.5rem;
-  border-radius: 1.25rem;
-  border: 1px solid var(--border);
-  font-size: 0.75rem;
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.15em;
-  cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: var(--shadow-md);
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-}
-
-.btn-admin-access:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-lg);
-}
-
-.btn-admin-access .icon-dot {
-  width: 8px;
-  height: 8px;
-  background-color: var(--accent);
-  border-radius: 50%;
-  display: inline-block;
-}
-
-/* Botón Volver (dentro del AdminPanel) */
-.btn-back-registry {
-  background: transparent;
-  color: var(--text);
-  padding: 0.5rem 0;
-  border: none;
-  font-size: 0.7rem;
-  font-weight: 900;
-  text-transform: uppercase;
-  letter-spacing: 0.2em;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  opacity: 0.5;
-  transition: all 0.3s ease;
-  margin-bottom: 2rem;
-}
-
-.btn-back-registry:hover {
-  opacity: 1;
-  color: var(--text-h);
-  transform: translateX(-5px);
-}
-
-.admin-layout-container {
-  padding: 2rem; /* Esto separa todo de los bordes del navegador */
-  max-width: 1200px;
-  margin: 0 auto;
-}
-
-.birthday-alerts-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-  gap: 1.5rem;
-  margin-bottom: 3rem;
-}
+/* ===== SCROLLBAR ===== */
+::-webkit-scrollbar       { width: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-mid); border-radius: 99px; }

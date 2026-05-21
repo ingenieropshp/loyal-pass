@@ -1,235 +1,227 @@
-import { useEffect, useRef } from 'react';
-import { supabase } from '../services/supabaseClient';
+import { useEffect } from 'react';
+import { supabase }  from '../services/supabaseClient';
 
-// --- LÓGICA DE REGISTRO ACTUALIZADA CON VALIDACIÓN POR SEDE ---
-export const manejarRegistro = async (datosFormulario) => {
-  try {
-    // 1. Verificar si el teléfono ya existe para evitar duplicados en esta sede específica
-    const { data: clienteExistente } = await supabase
-      .from('clientes')
-      .select('id, nombre, puntos')
-      .eq('telefono', datosFormulario.telefono)
-      .eq('restaurante_id', datosFormulario.restaurantId) // Validación por sede
-      .maybeSingle();
-
-    if (clienteExistente) {
-      console.log("El cliente ya existe en esta sede, cargando datos...");
-      return clienteExistente;
-    }
-
-    // 2. Crear registro nuevo con puntos de bienvenida y datos de referencia
-    const { data: nuevoCliente, error } = await supabase
-      .from('clientes')
-      .insert([{
-        nombre: datosFormulario.nombre,
-        telefono: datosFormulario.telefono,
-        puntos: 2, // Regalo inicial
-        restaurante_id: datosFormulario.restaurantId,
-        referido_por: datosFormulario.referidoPor || null,
-        origen: 'Registro Web'
-      }])
-      .select()
-      .single();
-
-    if (error) throw error;
-    return nuevoCliente;
-  } catch (error) {
-    console.error("Error en el proceso de registro:", error);
-    return null;
-  }
-};
-
-// --- FUNCIÓN DE CÁLCULO DE DISTANCIA (Haversine) ---
-export const calcularDistancia = (lat1, lon1, lat2, lon2) => {
-  const R = 6371; // Radio de la Tierra en km
-  const dLat = (lat2 - lat1) * (Math.PI / 180);
-  const dLon = (lon2 - lon1) * (Math.PI / 180);
-  const a = 
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) * 
-    Math.sin(dLon / 2) * Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c; 
-};
-
-// --- COMPONENTE SUCCESS CARD ---
-export const SuccessCard = ({ 
-  restauranteId, 
-  nombreRestaurante, 
-  nombreCliente, 
-  clienteId, 
-  puntosActuales = 0,
-  onClose 
+/**
+ * SuccessCard — pantalla mostrada justo después de un registro exitoso.
+ * Props:
+ *   restauranteId, nombreRestaurante, nombreCliente,
+ *   clienteId, puntosActuales, onClose
+ */
+export const SuccessCard = ({
+  restauranteId,
+  nombreRestaurante,
+  nombreCliente,
+  clienteId,
+  puntosActuales = 2,
+  onClose,
 }) => {
-  const ejecutadoRef = useRef(false);
-
-  const manejarLlegada = async (id) => {
-    if (ejecutadoRef.current || !id) return;
-    
-    console.log("1. Iniciando validación de llegada...");
-    
-    try {
-      const { data: restData, error: errorRest } = await supabase
-        .from('conexion') 
-        .select('latitud, longitud, radio_aviso')
-        .eq('restaurante_id', restauranteId) // Cambiado a restaurante_id para consistencia
-        .maybeSingle();
-
-      if (errorRest || !restData) {
-        console.error("2. Error al obtener datos del restaurante:", errorRest);
-        return;
-      }
-
-      const { latitud: restLat, longitud: restLon, radio_aviso = 200 } = restData;
-      
-      navigator.geolocation.getCurrentPosition(async (position) => {
-        try {
-          const userLat = position.coords.latitude;
-          const userLon = position.coords.longitude;
-          const rLat = parseFloat(restLat);
-          const rLon = parseFloat(restLon);
-
-          const distanciaKm = calcularDistancia(userLat, userLon, rLat, rLon);
-          const distanciaMetros = distanciaKm * 1000;
-
-          console.log(`Distancia: ${distanciaMetros.toFixed(2)}m. Radio permitido: ${radio_aviso}m.`);
-
-          if (distanciaMetros <= radio_aviso) {
-            ejecutadoRef.current = true; 
-
-            const { data: clienteDB } = await supabase
-              .from('clientes')
-              .select('puntos')
-              .eq('id', id)
-              .single();
-
-            const puntosBase = clienteDB ? (Number(clienteDB.puntos) || 0) : Number(puntosActuales);
-            const nuevosPuntos = puntosBase + 2;
-            const tienePremio = nuevosPuntos >= 20;
-
-            const { error: errorUpdate } = await supabase
-              .from('clientes')
-              .update({
-                puntos: nuevosPuntos,
-                ultima_visita: new Date().toISOString(),
-                reclamo_pendiente: tienePremio 
-              })
-              .eq('id', id);
-
-            if (errorUpdate) throw errorUpdate;
-            
-            if (nuevosPuntos >= 18 && nuevosPuntos < 20) {
-              alert("¡Estás a solo una visita de tu premio! 🌟");
-            } else if (tienePremio) {
-              alert("¡FELICIDADES! 🎉 Tienes 20 puntos. Avisa al personal para canjear tu premio.");
-            } else {
-              alert(`¡Sumaste 2 puntos por tu visita! Total: ${nuevosPuntos} puntos.`);
-            }
-          } else {
-            console.log("📍 Fuera del radio. No se suman puntos de visita.");
-          }
-        } catch (err) {
-          console.error("❌ Error en actualización:", err.message);
-        }
-      }, (error) => {
-        console.warn("❌ GPS desactivado o bloqueado.");
-      }, { enableHighAccuracy: true, timeout: 15000 });
-
-    } catch (err) {
-      console.error("Error general:", err);
-    }
-  };
-
+  // Notificación de bienvenida (best-effort)
   useEffect(() => {
-    if (clienteId && restauranteId && !ejecutadoRef.current) {
-      manejarLlegada(clienteId);
-    }
-  }, [clienteId, restauranteId]);
-
-  const handleCompartir = async () => {
-    const nombreRef = encodeURIComponent(nombreCliente);
-    const urlReferido = `${window.location.origin}/?r=${restauranteId}&ref=${nombreRef}`;
-    const shareData = {
-      title: `¡Regístrate en ${nombreRestaurante}!`,
-      text: `¡Hola! Te invito a registrarte en ${nombreRestaurante}. Si vas de mi parte, ambos recibimos beneficios. 👇`,
-      url: urlReferido,
+    const enviarNotificacion = async () => {
+      if (!('Notification' in window)) return;
+      if (Notification.permission !== 'granted') return;
+      try {
+        const reg = await navigator.serviceWorker.ready;
+        reg.showNotification(`¡Bienvenido a ${nombreRestaurante}! 🎉`, {
+          body:    `Has ganado tus primeros ${puntosActuales} puntos. ¡Sigue visitándonos!`,
+          icon:    '/icon-192.png',
+          badge:   '/icon-72.png',
+          vibrate: [100, 50, 100],
+        });
+      } catch {}
     };
+    enviarNotificacion();
+  }, [nombreRestaurante, puntosActuales]);
 
-    try {
-      if (navigator.share) {
-        await navigator.share(shareData);
-      } else {
-        const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(shareData.text + " " + urlReferido)}`;
-        window.open(whatsappUrl, '_blank');
-      }
-    } catch (err) {
-      console.log("Error al compartir:", err);
-    }
+  // Registrar referido si aplica
+  useEffect(() => {
+    const registrarReferido = async () => {
+      if (!restauranteId || !clienteId) return;
+      try {
+        const { data: cliente } = await supabase
+          .from('clientes').select('referidopor').eq('id', clienteId).maybeSingle();
+        if (!cliente?.referidopor || cliente.referidopor === 'Directo (QR local)') return;
+
+        const { data: referidor } = await supabase
+          .from('clientes')
+          .select('id, puntos, nombre')
+          .eq('nombre', cliente.referidopor)
+          .eq('restaurante_id', restauranteId)
+          .maybeSingle();
+
+        if (referidor) {
+          await supabase
+            .from('clientes')
+            .update({ puntos: (referidor.puntos || 0) + 1 })
+            .eq('id', referidor.id);
+        }
+      } catch {}
+    };
+    registrarReferido();
+  }, [restauranteId, clienteId]);
+
+  const compartirWhatsApp = () => {
+    const url = `${window.location.origin}/?r=${restauranteId}&ref=${encodeURIComponent(nombreCliente)}`;
+    const msg =
+      `🎉 ¡Me acabo de unir al club de *${nombreRestaurante}*!\n\n` +
+      `Visítalos y acumula puntos para ganar premios. Usa mi enlace:\n${url}`;
+    window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
   };
 
   return (
-    <div className="success-card-container animate-fade-in" style={{ 
-      textAlign: 'center', 
-      padding: '2.5rem 1.5rem',
-      borderRadius: '15px',
-      boxShadow: '0 10px 25px rgba(0,0,0,0.1)',
-      backgroundColor: '#fff',
-      maxWidth: '400px',
-      margin: '20px auto',
-      fontFamily: 'sans-serif'
-    }}>
-      <div style={{ fontSize: '4.5rem', marginBottom: '1rem' }}>🎁</div>
-      
-      <h2 style={{ color: '#3b82f6', marginBottom: '0.5rem', fontSize: '1.8rem' }}>
-        ¡LISTO, {nombreCliente?.toUpperCase()}!
-      </h2>
-      
-      <p style={{ marginBottom: '1.5rem', lineHeight: '1.6', color: '#475569' }}>
-        Ahora eres embajador de <strong>{nombreRestaurante || "nuestro restaurante"}</strong>.
-      </p>
+    <div style={styles.wrapper}>
+      <div style={styles.card}>
+        {/* Icono */}
+        <div style={styles.iconWrap}>
+          <span style={styles.icon}>🎉</span>
+        </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-        <button 
-          onClick={handleCompartir}
-          className="btn-whatsapp"
-          style={{ 
-            background: '#25D366', 
-            color: 'white',
-            display: 'flex', 
-            alignItems: 'center', 
-            justifyContent: 'center', 
-            gap: '10px',
-            boxShadow: '0 4px 15px rgba(37, 211, 102, 0.3)',
-            border: 'none',
-            borderRadius: '8px',
-            padding: '14px',
-            fontWeight: 'bold',
-            cursor: 'pointer',
-            fontSize: '1rem'
-          }}
-        >
-          <span style={{ fontSize: '1.2rem' }}>📢</span> INVITAR UN AMIGO
+        <h2 style={styles.heading}>
+          ¡Bienvenido,<br />{nombreCliente?.split(' ')[0]}!
+        </h2>
+        <p style={styles.sub}>
+          Ya eres parte del club <strong>{nombreRestaurante}</strong>.
+        </p>
+
+        {/* Puntos ganados */}
+        <div style={styles.pointsBadge}>
+          <span style={styles.pointsNum}>+{puntosActuales}</span>
+          <span style={styles.pointsLabel}>puntos de bienvenida</span>
+        </div>
+
+        {/* Cómo funciona */}
+        <div style={styles.stepsCard}>
+          <p style={styles.stepsTitle}>¿Cómo funciona?</p>
+          {[
+            { icon: '📍', text: 'Visítanos y confirma tu llegada con GPS' },
+            { icon: '🔐', text: 'Ingresa el PIN del mesero para sumar puntos' },
+            { icon: '🎁', text: 'Con 20 puntos ganas un premio exclusivo' },
+          ].map(({ icon, text }) => (
+            <div key={text} style={styles.stepRow}>
+              <span style={styles.stepIcon}>{icon}</span>
+              <span style={styles.stepText}>{text}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* CTAs */}
+        <button onClick={compartirWhatsApp} style={styles.btnWhatsapp}>
+          📢 Compartir e invitar amigos
         </button>
-
-        <button 
-          onClick={onClose || (() => window.location.reload())} 
-          style={{ 
-            background: '#3b82f6', 
-            color: 'white',
-            border: 'none', 
-            borderRadius: '8px',
-            padding: '12px',
-            fontWeight: 'bold',
-            cursor: 'pointer',
-            fontSize: '0.9rem',
-            marginTop: '0.5rem'
-          }}
-        >
-          CONTINUAR
+        <button onClick={onClose} style={styles.btnSecondary}>
+          Ver mi perfil →
         </button>
       </div>
     </div>
   );
 };
 
-export default SuccessCard;
+const styles = {
+  wrapper: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: '100vh',
+    padding: '1.5rem 1rem',
+    background: 'var(--bg-subtle)',
+  },
+  card: {
+    background: 'var(--bg-card)',
+    borderRadius: 'var(--r-xl)',
+    border: '1px solid var(--border)',
+    boxShadow: 'var(--shadow-card)',
+    padding: '2rem 1.75rem',
+    width: '100%',
+    maxWidth: 420,
+    textAlign: 'center',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '1rem',
+  },
+  iconWrap: {
+    width: 72, height: 72,
+    background: 'var(--coral-light)',
+    borderRadius: '50%',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    margin: '0 auto',
+  },
+  icon:  { fontSize: '2rem' },
+  heading: {
+    fontFamily: 'var(--font-display)',
+    fontSize: '1.6rem',
+    fontWeight: 800,
+    color: 'var(--text-h)',
+    letterSpacing: '-0.02em',
+    lineHeight: 1.15,
+    margin: 0,
+  },
+  sub: { fontSize: '0.9rem', color: 'var(--text)', margin: 0 },
+  pointsBadge: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    background: 'var(--coral-light)',
+    border: '1px solid var(--coral-border)',
+    borderRadius: 'var(--r-lg)',
+    padding: '1rem',
+    gap: 4,
+  },
+  pointsNum: {
+    fontFamily: 'var(--font-display)',
+    fontSize: '2.5rem',
+    fontWeight: 800,
+    color: 'var(--coral)',
+    lineHeight: 1,
+  },
+  pointsLabel: { fontSize: '0.8rem', color: 'var(--text)', fontWeight: 500 },
+  stepsCard: {
+    background: 'var(--bg-subtle)',
+    borderRadius: 'var(--r-lg)',
+    padding: '1rem 1.25rem',
+    textAlign: 'left',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '0.75rem',
+  },
+  stepsTitle: {
+    fontSize: '10px',
+    fontWeight: 700,
+    letterSpacing: '0.1em',
+    textTransform: 'uppercase',
+    color: 'var(--text)',
+    opacity: 0.5,
+    margin: 0,
+  },
+  stepRow: { display: 'flex', alignItems: 'flex-start', gap: '10px' },
+  stepIcon: { fontSize: '1rem', lineHeight: 1.4, flexShrink: 0 },
+  stepText: { fontSize: '0.875rem', color: 'var(--text)', lineHeight: 1.45 },
+  btnWhatsapp: {
+    width: '100%',
+    padding: '13px',
+    background: '#25D366',
+    color: 'white',
+    border: 'none',
+    borderRadius: 'var(--r-md)',
+    fontFamily: 'var(--font-display)',
+    fontWeight: 700,
+    fontSize: '0.875rem',
+    letterSpacing: '0.04em',
+    cursor: 'pointer',
+    textTransform: 'uppercase',
+  },
+  btnSecondary: {
+    width: '100%',
+    padding: '11px',
+    background: 'var(--bg-subtle)',
+    color: 'var(--text-h)',
+    border: '1px solid var(--border)',
+    borderRadius: 'var(--r-md)',
+    fontFamily: 'var(--font-body)',
+    fontWeight: 600,
+    fontSize: '0.875rem',
+    cursor: 'pointer',
+  },
+};

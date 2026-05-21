@@ -1,243 +1,208 @@
-import { useState, useEffect } from 'react';
-import { supabase } from '../services/supabaseClient'; 
-import './UserDashboard.css'; 
+import { useState, useEffect, useRef } from 'react';
+import { supabase } from '../services/supabaseClient';
+import './UserDashboard.css';
 
 const calcularDistancia = (lat1, lon1, lat2, lon2) => {
-  const R = 6371; 
+  const R    = 6371;
   const dLat = (lat2 - lat1) * (Math.PI / 180);
   const dLon = (lon2 - lon1) * (Math.PI / 180);
-  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-            Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) *
+    Math.sin(dLon / 2) ** 2;
   return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
 };
 
-export const UserDashboard = ({ 
-  restauranteId, 
-  clienteId, 
-  nombreRestaurante,
-  distancia, 
-  esCerca: inicialEsCerca 
-}) => {
-  const [cliente, setCliente] = useState(null);
-  const [procesando, setProcesando] = useState(false);
-  const [esCerca, setEsCerca] = useState(inicialEsCerca || false);
-  const [mostrarPin, setMostrarPin] = useState(false);
-  const [pinIngresado, setPinIngresado] = useState("");
+const TOTAL_PUNTOS = 20;
 
+export const UserDashboard = ({ restauranteId, clienteId, nombreRestaurante, esCerca: inicialEsCerca }) => {
+  const [cliente,      setCliente]      = useState(null);
+  const [procesando,   setProcesando]   = useState(false);
+  const [esCerca,      setEsCerca]      = useState(inicialEsCerca || false);
+  const [mostrarPin,   setMostrarPin]   = useState(false);
+  const [pinIngresado, setPinIngresado] = useState('');
+  const pinInputRef = useRef(null);
+
+  // ── Service Worker ──────────────────────────────────────────────────────
   useEffect(() => {
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').catch(() => {});
+    }
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission().catch(() => {});
+    }
+  }, []);
+
+  // ── Cargar cliente ──────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!clienteId) return;
     const fetchCliente = async () => {
-      if (!clienteId) return;
-      try {
-        const { data, error } = await supabase
-          .from('clientes')
-          .select('*')
-          .eq('id', clienteId)
-          .maybeSingle();
-
-        if (error) throw error;
-
-        if (data) {
-          setCliente(data);
-        } else {
-          console.warn("Cliente no encontrado en Supabase. Limpiando datos obsoletos...");
-          const registros = JSON.parse(localStorage.getItem("bistro_multisede") || "{}");
-          delete registros[restauranteId];
-          localStorage.setItem("bistro_multisede", JSON.stringify(registros));
-          window.location.reload();
-        }
-      } catch (error) {
-        console.error("Error al cargar perfil:", error);
-        alert("Error de conexión. Por favor, recarga la página.");
+      const { data, error } = await supabase
+        .from('clientes').select('*').eq('id', clienteId).maybeSingle();
+      if (error || !data) {
+        const registros = JSON.parse(localStorage.getItem('bistro_multisede') || '{}');
+        delete registros[restauranteId];
+        localStorage.setItem('bistro_multisede', JSON.stringify(registros));
+        window.location.reload();
+      } else {
+        setCliente(data);
       }
     };
     fetchCliente();
   }, [clienteId, restauranteId]);
 
-  const obtenerDiasRestantes = () => {
-    if (!cliente || !cliente.fecha_cumplimiento) return null;
-    const fechaInicio = new Date(cliente.fecha_cumplimiento);
-    const fechaVencimiento = new Date(fechaInicio);
-    fechaVencimiento.setDate(fechaInicio.getDate() + 30); 
-    const hoy = new Date();
-    const diferencia = fechaVencimiento - hoy;
-    return Math.ceil(diferencia / (1000 * 60 * 60 * 24));
-  };
+  // ── Focus en pin input al abrir ────────────────────────────────────────
+  useEffect(() => {
+    if (mostrarPin) setTimeout(() => pinInputRef.current?.focus(), 100);
+  }, [mostrarPin]);
 
-  const diasRestantes = obtenerDiasRestantes();
+  // ── Días restantes del cupón ───────────────────────────────────────────
+  const diasRestantes = (() => {
+    if (!cliente?.fecha_cumplimiento) return null;
+    const vence = new Date(cliente.fecha_cumplimiento);
+    vence.setDate(vence.getDate() + 30);
+    return Math.ceil((vence - new Date()) / (1000 * 60 * 60 * 24));
+  })();
 
+  // ── Compartir cupón por WhatsApp ───────────────────────────────────────
   const enviarRecordatorioWhatsApp = () => {
-    const mensaje = 
+    const msg =
       `*¡FELICIDADES!* 🎉\n\n` +
       `Has completado tus 20 puntos en *${nombreRestaurante}*.\n\n` +
-      `🎫 *CUPÓN DE PREMIO*\n` +
-      `Código: ${clienteId.substring(0, 5).toUpperCase()}\n\n` +
-      `⚠️ *No olvides presentar este mensaje* al mesero para reclamar tu beneficio.\n\n` +
-      `Tienes ${diasRestantes} días a partir de hoy. ¡Te esperamos! 🍕`;
-
-    const url = `https://wa.me/?text=${encodeURIComponent(mensaje)}`;
-    window.open(url, '_blank');
+      `🎫 *CUPÓN DE PREMIO*\nCódigo: ${clienteId.substring(0, 5).toUpperCase()}\n\n` +
+      `⚠️ Preséntalo al mesero. Tienes ${diasRestantes} días.\n¡Te esperamos! 🍕`;
+    window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
   };
 
+  // ── Validar ubicación ──────────────────────────────────────────────────
   const validarUbicacion = async () => {
     if (procesando) return;
     setProcesando(true);
     try {
       const { data: restData, error } = await supabase
-        .from('conexion') 
-        .select('latitud, longitud, radio_aviso')
-        .eq('restaurante_id', restauranteId)
-        .maybeSingle();
-
-      if (error || !restData) {
-        alert("No se pudo obtener la ubicación de esta sede.");
-        setProcesando(false);
-        return;
-      }
+        .from('conexion').select('latitud, longitud, radio_aviso')
+        .eq('restaurante_id', restauranteId).maybeSingle();
+      if (error || !restData) { alert('No se pudo obtener la ubicación de esta sede.'); return; }
 
       const rLat = parseFloat(restData.latitud);
       const rLon = parseFloat(restData.longitud);
-      const radioPermitido = restData.radio_aviso || 200;
+      const radio = restData.radio_aviso || 200;
 
-      navigator.geolocation.getCurrentPosition(async (pos) => {
-        const userLat = pos.coords.latitude;
-        const userLon = pos.coords.longitude;
+      navigator.geolocation.getCurrentPosition(
+        async (pos) => {
+          const { latitude: uLat, longitude: uLon } = pos.coords;
+          const distM = calcularDistancia(uLat, uLon, rLat, rLon) * 1000;
 
-        const distKm = calcularDistancia(userLat, userLon, rLat, rLon);
-        const distMetros = distKm * 1000;
-        const esExito = distMetros <= radioPermitido;
-
-        try {
-          await supabase.from('metricas_proximidad').insert([{
-            cliente: cliente?.nombre || "Anónimo",
+          supabase.from('metricas_proximidad').insert([{
+            cliente: cliente?.nombre || 'Anónimo',
             restaurante: nombreRestaurante,
             restaurante_id: restauranteId,
-            distancia: Math.round(distMetros),
-            dentro_del_rango_800: distMetros <= 800,
-            es_exito_total: esExito
-          }]);
-        } catch (err) {
-          console.error("Error al guardar métricas:", err);
-        }
+            distancia: Math.round(distM),
+            dentro_del_rango_800: distM <= 800,
+            es_exito_total: distM <= radio,
+          }]).catch(() => {});
 
-        if (esExito) {
-          setEsCerca(true);
-          setMostrarPin(true);
-        } else {
-          alert(`📍 Estás a ${Math.round(distMetros)}m. \n\nPara confirmar tu llegada y sumar puntos, debes estar a menos de ${radioPermitido}m de ${nombreRestaurante}.`);
-        }
-        setProcesando(false);
-      }, (err) => {
-        let msg = "Por favor activa el GPS para confirmar tu llegada.";
-        if (err.code === 1) msg = "Debes permitir el acceso a la ubicación en tu navegador.";
-        if (err.code === 3) msg = "La señal del GPS es débil. Intenta de nuevo en un espacio abierto.";
-        alert(msg);
-        setProcesando(false);
-      }, { enableHighAccuracy: true, timeout: 15000 });
-
-    } catch (e) {
-      console.error(e);
-      setProcesando(false);
-    }
+          if (distM <= radio) {
+            setEsCerca(true);
+            setMostrarPin(true);
+          } else {
+            alert(`📍 Estás a ${Math.round(distM)}m. Debes estar a menos de ${radio}m.`);
+          }
+          setProcesando(false);
+        },
+        (err) => {
+          const msgs = { 1: 'Permite el acceso a tu ubicación.', 3: 'Señal GPS débil. Intenta en espacio abierto.' };
+          alert(msgs[err.code] || 'Activa el GPS para confirmar tu llegada.');
+          setProcesando(false);
+        },
+        { enableHighAccuracy: true, timeout: 15000 }
+      );
+    } catch { setProcesando(false); }
   };
 
-  const manejarConfirmacionFinal = async () => {
+  // ── Confirmar llegada con PIN ───────────────────────────────────────────
+  const manejarConfirmacion = async () => {
     setProcesando(true);
-    
     try {
-      // --- NUEVO: CONSULTA EN TIEMPO REAL DEL PIN ---
-      const { data: dbCliente, error: dbError } = await supabase
-        .from('clientes')
-        .select('pin_individual, puntos')
-        .eq('id', clienteId)
-        .single();
+      const { data: db, error } = await supabase
+        .from('clientes').select('pin_individual, puntos').eq('id', clienteId).single();
+      if (error || !db) throw new Error();
 
-      if (dbError || !dbCliente) throw new Error("Error al verificar el PIN.");
-
-      // Validamos contra el dato recién traído de la base de datos
-      if (pinIngresado !== dbCliente.pin_individual) {
-        alert(`❌ PIN incorrecto. Solicita el código actualizado al mesero.`);
+      if (pinIngresado !== db.pin_individual) {
+        alert('❌ PIN incorrecto. Solicita el código al mesero.');
         setProcesando(false);
         return;
       }
 
-      const nuevosPuntos = (dbCliente.puntos || 0) + 2;
+      const nuevosPuntos = (db.puntos || 0) + 2;
+      const tienePremio  = nuevosPuntos >= TOTAL_PUNTOS;
+
       const updates = {
-        puntos: nuevosPuntos,
+        puntos:        nuevosPuntos,
         ultima_visita: new Date().toISOString(),
+        ...(tienePremio && {
+          reclamo_pendiente:  true,
+          fecha_cumplimiento: new Date().toISOString(),
+        }),
       };
 
-      if (nuevosPuntos >= 20) {
-        updates.reclamo_pendiente = true;
-        updates.fecha_cumplimiento = new Date().toISOString();
-      }
+      const { error: errUpdate } = await supabase
+        .from('clientes').update(updates).eq('id', clienteId);
+      if (errUpdate) throw errUpdate;
 
-      const { error } = await supabase
-        .from('clientes')
-        .update(updates)
-        .eq('id', clienteId);
+      setCliente(prev => ({ ...prev, ...updates, pin_individual: db.pin_individual }));
 
-      if (error) throw error;
+      if (tienePremio) alert('🎉 ¡20 puntos! Muéstrale esto al mesero para reclamar tu premio.');
+      else alert(`✅ ¡+2 puntos! Ahora tienes ${nuevosPuntos} puntos.`);
 
-      setCliente(prev => ({ 
-        ...prev, 
-        ...updates,
-        pin_individual: dbCliente.pin_individual // Sincronizamos el nuevo PIN en el estado local
-      }));
-      
-      if (nuevosPuntos >= 20) {
-        alert("🎉 ¡FELICIDADES! Has llegado a 20 puntos.");
-      } else {
-        alert("✅ ¡Puntos sumados correctamente!");
-      }
-      
       setMostrarPin(false);
-      setPinIngresado("");
+      setPinIngresado('');
       setEsCerca(false);
-    } catch (error) {
-      console.error("Error en validación:", error);
-      alert("Error al actualizar puntos.");
+    } catch {
+      alert('Error al actualizar puntos. Intenta de nuevo.');
     }
     setProcesando(false);
   };
 
+  // ── Compartir invitación ───────────────────────────────────────────────
   const compartirInvitacion = async () => {
-    const shareData = {
-      title: `¡Únete a ${nombreRestaurante}!`,
-      text: `¡Hola! Me registré en ${nombreRestaurante}. Usa mi enlace para que ambos recibamos beneficios:`,
-      url: `${window.location.origin}/?r=${restauranteId}&ref=${encodeURIComponent(cliente?.nombre || 'Amigo')}`
-    };
+    const url  = `${window.location.origin}/?r=${restauranteId}&ref=${encodeURIComponent(cliente?.nombre || 'Amigo')}`;
+    const text = `¡Hola! Me registré en ${nombreRestaurante}. Úsate mi enlace para que ambos ganemos beneficios:`;
     try {
-      if (navigator.share) await navigator.share(shareData);
-      else window.open(`https://wa.me/?text=${encodeURIComponent(shareData.text + " " + shareData.url)}`, '_blank');
-    } catch (err) { console.log(err); }
+      if (navigator.share) await navigator.share({ title: `Únete a ${nombreRestaurante}!`, text, url });
+      else window.open(`https://wa.me/?text=${encodeURIComponent(text + ' ' + url)}`, '_blank');
+    } catch {}
   };
 
-  if (!cliente) return <div className="loading-container">Sincronizando...</div>;
+  if (!cliente) return <div className="loading-container">Sincronizando…</div>;
 
+  const puntos    = cliente.puntos || 0;
+  const progreso  = Math.min(puntos / TOTAL_PUNTOS, 1);
+  const DOTS      = 10;
+  const dotsLlenos = Math.floor((puntos / TOTAL_PUNTOS) * DOTS);
+
+  // ── Render ─────────────────────────────────────────────────────────────
   return (
     <div className="dashboard-container animate-fade-in">
-      <span className="gift-icon">🎁</span>
-      <h2 className="welcome-title">¡LISTO, {cliente.nombre?.toUpperCase()}!</h2>
-      <p className="subtitle">Ahora eres embajador de <strong>{nombreRestaurante}</strong>.</p>
+      {/* Header */}
+      <div className="dash-welcome">Hola de nuevo,</div>
+      <div className="dash-name">{cliente.nombre?.toUpperCase()}</div>
 
+      {/* Cupón activo */}
       {cliente.reclamo_pendiente && (
         <div className="coupon-card-container animate-bounce-slow">
           <div className="coupon-card">
-            <div className="coupon-left">
-              <span className="coupon-brand">{nombreRestaurante}</span>
-              <div className="coupon-main-content">
-                <h3>¡VALE POR 1 PREMIO!</h3>
-                <p>Presenta este código en caja</p>
-              </div>
-              <div className="coupon-footer">
-                <span>{diasRestantes > 0 ? `Vence en: ${diasRestantes} días` : "⚠️ CUPÓN VENCIDO"}</span>
-              </div>
+            <div className="coupon-accent-bar" />
+            <div className="coupon-body">
+              <div className="coupon-tag">Premio desbloqueado</div>
+              <div className="coupon-title">Vale por 1 premio</div>
+              <div className="coupon-sub">Presenta este código al mesero</div>
+              <div className="coupon-code">{clienteId.substring(0, 5).toUpperCase()}</div>
             </div>
-            <div className="coupon-right">
-              <div className="coupon-id">{clienteId.toString().substring(0, 5).toUpperCase()}</div>
+            <div className="coupon-days-col">
+              <div className="coupon-days-num">{diasRestantes > 0 ? diasRestantes : '!'}</div>
+              <div className="coupon-days-label">{diasRestantes > 0 ? 'días' : 'vencido'}</div>
             </div>
-            <div className="punch-hole-top"></div>
-            <div className="punch-hole-bottom"></div>
           </div>
           <button onClick={enviarRecordatorioWhatsApp} className="btn-whatsapp-remind">
             📩 Guardar cupón en WhatsApp
@@ -245,42 +210,83 @@ export const UserDashboard = ({
         </div>
       )}
 
-      <div className="points-card">
-        <span className="points-label">TUS PUNTOS ACTUALES</span>
-        <span className="points-value">{cliente.puntos || 0}</span>
+      {/* Progress */}
+      <div className="progress-section">
+        <div className="progress-header">
+          <span className="progress-label">Progreso hacia tu premio</span>
+          <span className="progress-count">{puntos} / {TOTAL_PUNTOS} pts</span>
+        </div>
+        <div className="progress-track">
+          <div className="progress-fill" style={{ width: `${progreso * 100}%` }} />
+        </div>
+        <div className="progress-dots">
+          {Array.from({ length: DOTS }).map((_, i) => (
+            <div
+              key={i}
+              className={`progress-dot${i < dotsLlenos ? ' filled' : i === dotsLlenos && puntos % 2 !== 0 ? ' current' : ''}`}
+            />
+          ))}
+        </div>
       </div>
 
+      {/* Acciones */}
       <div className="actions-stack">
         {!mostrarPin ? (
           <button onClick={validarUbicacion} disabled={procesando} className="btn-primary">
-            {procesando ? "VALIDANDO UBICACIÓN..." : "📍 CONFIRMAR LLEGADA (+2)"}
+            {procesando ? 'Validando ubicación…' : '📍 Confirmar llegada (+2)'}
           </button>
         ) : (
-          <div className="pin-container animate-fade-in bg-white p-6 rounded-2xl shadow-inner border-2 border-indigo-100 mt-4">
-            <p className="text-xs font-bold text-indigo-400 uppercase tracking-widest mb-3 text-center">Validación de Consumo</p>
+          <div className="pin-container animate-fade-in">
+            <span className="pin-label">PIN del mesero</span>
+
+            {/* Cajas visuales */}
+            <div className="pin-boxes">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div
+                  key={i}
+                  className={`pin-box${i === pinIngresado.length ? ' active' : pinIngresado[i] ? '' : ' empty'}`}
+                >
+                  {pinIngresado[i] ? '•' : ''}
+                </div>
+              ))}
+            </div>
+
+            {/* Input real invisible para teclado nativo */}
             <input
-              type="tel" pattern="[0-9]*" maxLength="4"
+              ref={pinInputRef}
+              type="tel"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              maxLength={4}
               value={pinIngresado}
-              autoFocus
-              onChange={(e) => setPinIngresado(e.target.value.replace(/\D/g, ""))}
-              placeholder="0000"
-              className="w-full text-center text-4xl font-black tracking-[1rem] py-3 border-b-4 border-indigo-500 focus:outline-none bg-transparent mb-6"
+              onChange={(e) => setPinIngresado(e.target.value.replace(/\D/g, '').slice(0, 4))}
+              className="pin-input-hidden"
+              aria-label="Ingresa PIN de 4 dígitos"
             />
-            <div className="flex gap-3">
-              <button onClick={() => {setMostrarPin(false); setPinIngresado("");}} className="flex-1 py-3 text-gray-400 font-semibold">Cancelar</button>
-              <button onClick={manejarConfirmacionFinal} disabled={pinIngresado.length < 4 || procesando} className="flex-[2] py-3 bg-green-500 text-white rounded-xl font-bold shadow-lg disabled:opacity-50">
-                {procesando ? "VERIFICANDO..." : "CONFIRMAR"}
+
+            <div className="pin-actions">
+              <button onClick={() => { setMostrarPin(false); setPinIngresado(''); }} className="btn-cancel">
+                Cancelar
+              </button>
+              <button
+                onClick={manejarConfirmacion}
+                disabled={pinIngresado.length < 4 || procesando}
+                className="btn-verify"
+              >
+                {procesando ? 'Verificando…' : 'Confirmar'}
               </button>
             </div>
           </div>
         )}
 
-        <button onClick={compartirInvitacion} className="btn-share" style={{ marginTop: mostrarPin ? '1.5rem' : '0' }}>
-          📢 INVITAR UN AMIGO
+        <button onClick={compartirInvitacion} className="btn-share">
+          📢 Invitar a un amigo
         </button>
       </div>
 
-      <p className="footer-text">Cada vez que nos visites, confirma tu llegada para ganar premios.</p>
+      <p className="footer-text">
+        Confirma tu llegada en cada visita para seguir sumando puntos y premios.
+      </p>
     </div>
   );
 };
