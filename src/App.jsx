@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { RegistrationForm } from './components/RegistrationForm';
 import { SuccessCard }      from './components/manejarRegistro';
 import { UserDashboard }    from './components/UserDashboard';
+import { BuscadorRestaurantes } from './components/BuscadorRestaurantes';
 import { useLocation }      from './hooks/useLocation';
 import { supabase }         from './services/supabaseClient';
 import './App.css';
@@ -9,21 +10,22 @@ import './App.css';
 function App() {
   const params = useMemo(() => new URLSearchParams(window.location.search), []);
 
-  const restauranteID = useMemo(() => {
-    const rRaw = params.get('r');
-    return rRaw ? decodeURIComponent(rRaw).trim() : '101 Bistro';
-  }, [params]);
+  // Si NO viene ?r=, mostramos el buscador global de restaurantes.
+  const rRaw = params.get('r');
+  const restauranteID = rRaw ? decodeURIComponent(rRaw).trim() : null;
 
   const [clienteId,       setClienteId]       = useState(() => {
+    if (!restauranteID) return null;
     const registros = JSON.parse(localStorage.getItem('bistro_multisede') || '{}');
     return registros[restauranteID] || null;
   });
   const [nombreCliente,   setNombreCliente]    = useState('');
   const [puntosCliente,   setPuntosCliente]    = useState(0);
   const [isRegisteredNow, setIsRegisteredNow]  = useState(false);
-  const [isVerifyingUser, setIsVerifyingUser]  = useState(true);
+  const [isVerifyingUser, setIsVerifyingUser]  = useState(!!restauranteID);
   const [referidoPor,     setReferidoPor]      = useState('');
   const [bistroLoc,       setBistroLoc]        = useState(null);
+  const [sedeNoEncontrada, setSedeNoEncontrada] = useState(false);
 
   useEffect(() => {
     const ref = params.get('ref');
@@ -31,8 +33,8 @@ function App() {
   }, [params]);
 
   useEffect(() => {
+    if (!restauranteID) return;
     const inicializarDatos = async () => {
-      if (!restauranteID) return;
       setIsVerifyingUser(true);
       try {
         const esUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(restauranteID);
@@ -42,6 +44,7 @@ function App() {
 
         if (errorSede || !sede) {
           console.warn('⚠️ Sede no encontrada:', restauranteID);
+          setSedeNoEncontrada(true);
           setIsVerifyingUser(false);
           return;
         }
@@ -67,6 +70,7 @@ function App() {
           .eq('restaurante_id', sede.id).maybeSingle();
 
         if (gpsData) setBistroLoc({ ...gpsData, nombre: sede.nombre });
+        else setBistroLoc({ restaurante_id: sede.id, nombre: sede.nombre, latitud: null, longitud: null });
       } catch (err) {
         console.error('Error en inicialización:', err);
       } finally {
@@ -78,6 +82,7 @@ function App() {
   }, [restauranteID]);
 
   useEffect(() => {
+    if (!restauranteID) return;
     const registros    = JSON.parse(localStorage.getItem('bistro_multisede') || '{}');
     const idEnEstaSede = registros[restauranteID] || null;
     if (idEnEstaSede !== clienteId) setClienteId(idEnEstaSede);
@@ -107,6 +112,8 @@ function App() {
     nombreBistro: bistroLoc?.nombre || restauranteID,
   }), [bistroLoc, restauranteID]);
 
+  const volverAlBuscador = () => { window.location.href = '/'; };
+
   const handleSuccess = (nuevoId, nombre, puntos) => {
     const registros = JSON.parse(localStorage.getItem('bistro_multisede') || '{}');
     registros[restauranteID] = nuevoId;
@@ -116,6 +123,25 @@ function App() {
     setPuntosCliente(puntos);
     setIsRegisteredNow(true);
   };
+
+  // ── QR GENERAL → Buscador de restaurantes ────────────────────────────────
+  if (!restauranteID) {
+    return <BuscadorRestaurantes />;
+  }
+
+  // ── Sede no encontrada ───────────────────────────────────────────────────
+  if (sedeNoEncontrada) {
+    return (
+      <div className="main-wrapper" style={{ justifyContent: 'center', gap: '1rem', textAlign: 'center', padding: '2rem' }}>
+        <h2 style={{ fontFamily: 'var(--font-display)', color: 'var(--text-h)' }}>Restaurante no encontrado</h2>
+        <p style={{ fontSize: '0.9rem', opacity: 0.7 }}>“{restauranteID}” no está afiliado.</p>
+        <button onClick={volverAlBuscador} style={{
+          padding: '12px 20px', background: 'var(--coral)', color: 'white',
+          border: 'none', borderRadius: 'var(--r-md)', fontWeight: 700, cursor: 'pointer',
+        }}>← Ver todos los restaurantes</button>
+      </div>
+    );
+  }
 
   // ── Pantalla de carga ─────────────────────────────────────────────────────
   if (isVerifyingUser || !bistroLoc) {
@@ -138,7 +164,7 @@ function App() {
         nombreCliente={nombreCliente}
         clienteId={clienteId}
         puntosActuales={puntosCliente}
-        onClose={() => setIsRegisteredNow(false)}
+        onClose={volverAlBuscador}
       />
     );
   }
@@ -148,7 +174,13 @@ function App() {
   // ── App principal ─────────────────────────────────────────────────────────
   return (
     <div className="main-wrapper">
-      <header style={{ textAlign: 'center', margin: '1.75rem 0 1.5rem', width: '100%' }}>
+      <button onClick={volverAlBuscador} style={{
+        alignSelf: 'flex-start', margin: '0.75rem 0 0 0.5rem',
+        background: 'transparent', border: 'none', color: 'var(--text)',
+        fontSize: '0.85rem', cursor: 'pointer', opacity: 0.7,
+      }}>← Buscador</button>
+
+      <header style={{ textAlign: 'center', margin: '0.5rem 0 1.5rem', width: '100%' }}>
         <h1 className="bistro-title">
           {config.nombreBistro}<span className="dot">.</span>
         </h1>
