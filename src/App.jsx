@@ -246,7 +246,7 @@ function App() {
           <div className="prox-icon-wrap">
             {esCerca ? '✓' : '📍'}
           </div>
-          <div>
+          <div style={{ flex: 1 }}>
             <div className="prox-label">{esCerca ? '¡Bienvenido!' : 'Estás a'}</div>
             <div className="prox-distance">
               {esCerca
@@ -256,6 +256,33 @@ function App() {
                   : `${Math.round(distancia)} metros`}
             </div>
           </div>
+          {bistroLoc?.latitud && bistroLoc?.longitud && (
+            <a
+              href={`https://www.google.com/maps/dir/?api=1&destination=${bistroLoc.latitud},${bistroLoc.longitud}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: '2px',
+                padding: '6px 10px',
+                background: esCerca ? 'rgba(255,255,255,0.35)' : 'rgba(220,80,50,0.12)',
+                borderRadius: '10px',
+                textDecoration: 'none',
+                color: esCerca ? 'white' : 'var(--coral, #e04a2f)',
+                fontSize: '0.65rem',
+                fontWeight: 700,
+                letterSpacing: '0.03em',
+                whiteSpace: 'nowrap',
+                flexShrink: 0,
+              }}
+              title="Abrir en Google Maps"
+            >
+              <span style={{ fontSize: '1.3rem', lineHeight: 1 }}>🗺️</span>
+              Cómo llegar
+            </a>
+          )}
         </div>
       ) : (
         <div className="gps-loader">
