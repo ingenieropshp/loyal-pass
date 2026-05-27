@@ -89,17 +89,65 @@ function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [restauranteID]);
 
+  // ── REALTIME: escuchar cambios de GPS/radio Y configuración en tiempo real ──
   useEffect(() => {
+    // Solo activar cuando ya tenemos el ID del restaurante cargado
     if (!bistroLoc?.restaurante_id) return;
-    const channel = supabase
-      .channel(`gps-realtime-${bistroLoc.restaurante_id}`)
-      .on('postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'conexion',
-          filter: `restaurante_id=eq.${bistroLoc.restaurante_id}` },
-        (payload) => setBistroLoc(prev => ({ ...prev, ...payload.new }))
-      ).subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [bistroLoc?.restaurante_id]);
+
+    const restauranteId = bistroLoc.restaurante_id;
+
+    // ── Canal 1: tabla `conexion` ─────────────────────────────────────────────
+    // Escucha cambios de latitud, longitud y radio_aviso que hace el admin.
+    // Cuando el admin mueve el pin en el mapa o ajusta el radio, este canal
+    // recibe el UPDATE y actualiza bistroLoc → useLocation recalcula distancia.
+    const chConexion = supabase
+      .channel(`realtime-conexion-${restauranteId}`)
+      .on(
+        'postgres_changes',
+        {
+          event:  'UPDATE',
+          schema: 'public',
+          table:  'conexion',
+          filter: `restaurante_id=eq.${restauranteId}`, // solo este restaurante
+        },
+        (payload) => {
+          // Fusionar los nuevos valores GPS conservando el nombre y otros campos
+          setBistroLoc(prev => ({ ...prev, ...payload.new }));
+        }
+      )
+      .subscribe();
+
+    // ── Canal 2: tabla `configuracion` ───────────────────────────────────────
+    // Escucha cambios de nombre, mensaje_promo y estado activo/inactivo.
+    // Cuando el admin pausa la campaña o cambia el mensaje, se refleja aquí.
+    const chConfig = supabase
+      .channel(`realtime-config-${restauranteId}`)
+      .on(
+        'postgres_changes',
+        {
+          event:  'UPDATE',
+          schema: 'public',
+          table:  'configuracion',
+          filter: `id=eq.${restauranteId}`, // solo este restaurante
+        },
+        (payload) => {
+          // Actualizar nombre y mensaje_promo en bistroLoc para que
+          // config (useMemo) los recalcule automáticamente
+          setBistroLoc(prev => ({
+            ...prev,
+            nombre:        payload.new.nombre        ?? prev.nombre,
+            mensaje_promo: payload.new.mensaje_promo ?? prev.mensaje_promo,
+          }));
+        }
+      )
+      .subscribe();
+
+    // Limpiar ambos canales cuando el componente se desmonta o cambia el ID
+    return () => {
+      supabase.removeChannel(chConexion);
+      supabase.removeChannel(chConfig);
+    };
+  }, [bistroLoc?.restaurante_id]); // Solo se re-ejecuta si cambia el restaurante
 
   const { distance: distancia, error: geoError } = useLocation(
     bistroLoc?.latitud  ?? null,
