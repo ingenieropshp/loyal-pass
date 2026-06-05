@@ -377,3 +377,210 @@
   .dashboard-container { padding: 1.25rem; }
   .pin-box             { width: 44px; height: 52px; font-size: 1.25rem; }
 }
+
+/* ══════════════════════════════════════════════════════
+   NUEVAS CLASES v1.1
+══════════════════════════════════════════════════════ */
+
+/* ── Tabs ──────────────────────────────────────────── */
+.dash-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 1.25rem;
+  flex-wrap: wrap;
+}
+.dash-tab-btn {
+  flex: 1;
+  min-width: 80px;
+  padding: 8px 10px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  color: var(--text-h);
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.dash-tab-btn.active {
+  background: var(--coral);
+  color: #fff;
+  border-color: var(--coral);
+}
+
+/* ── Header con nivel ──────────────────────────────── */
+.dash-header-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 1rem;
+}
+.nivel-badge-dash {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 12px;
+  border-radius: var(--r-lg);
+  flex-shrink: 0;
+}
+.nivel-emoji   { font-size: 1.4rem; line-height: 1; }
+.nivel-label   { font-size: 0.8rem; font-weight: 700; line-height: 1; }
+.nivel-ciclos  { font-size: 0.68rem; opacity: 0.7; margin-top: 1px; }
+
+.nivel-bronce { background: #FFF3CD; color: #856404; border: 1px solid #FFEEBA; }
+.nivel-plata  { background: #E8EDF2; color: #495057; border: 1px solid #CED4DA; }
+.nivel-oro    { background: #FFF8E1; color: #B8860B; border: 1px solid #FFD700; }
+
+/* ── Info de progreso de nivel ─────────────────────── */
+.nivel-progress-info {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.78rem;
+  color: var(--text);
+  background: var(--bg-subtle);
+  border-radius: var(--r-md);
+  padding: 8px 12px;
+  margin-bottom: 1rem;
+  font-weight: 600;
+}
+.nivel-falta { opacity: 0.7; font-weight: 500; }
+
+/* ── Animación puntos ganados ──────────────────────── */
+.puntos-ganados-anim {
+  text-align: center;
+  font-family: var(--font-display);
+  font-size: 1.2rem;
+  font-weight: 800;
+  color: var(--coral);
+  animation: fadeSlideUp 2.5s ease forwards;
+  margin-bottom: 0.25rem;
+}
+@keyframes fadeSlideUp {
+  0%   { opacity: 0; transform: translateY(8px); }
+  20%  { opacity: 1; transform: translateY(0);   }
+  80%  { opacity: 1; }
+  100% { opacity: 0; transform: translateY(-8px); }
+}
+
+/* ── Retos ─────────────────────────────────────────── */
+.retos-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+.reto-card {
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.reto-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+.reto-card-titulo {
+  font-weight: 700;
+  font-size: 0.92rem;
+  color: var(--text-h);
+}
+.reto-card-bonus {
+  background: var(--coral-light);
+  color: var(--coral);
+  border: 1px solid var(--coral-border);
+  border-radius: 99px;
+  padding: 2px 10px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.reto-card-desc {
+  font-size: 0.8rem;
+  color: var(--text);
+  opacity: 0.75;
+}
+.reto-card-meta {
+  display: flex;
+  gap: 12px;
+  font-size: 0.75rem;
+  color: var(--text);
+  opacity: 0.7;
+}
+.reto-urgente {
+  color: #dc2626 !important;
+  opacity: 1 !important;
+  font-weight: 700;
+}
+.retos-empty {
+  text-align: center;
+  padding: 2rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+}
+.retos-empty p    { font-weight: 600; color: var(--text-h); margin: 0; }
+.retos-empty span { font-size: 0.8rem; color: var(--text); opacity: 0.6; }
+
+/* ── Historial ─────────────────────────────────────── */
+.historial-section {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+.historial-resumen {
+  display: flex;
+  gap: 8px;
+}
+.hist-stat {
+  flex: 1;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: 10px 6px;
+  text-align: center;
+}
+.hist-stat-num {
+  font-family: var(--font-display);
+  font-size: 1.4rem;
+  font-weight: 800;
+  color: var(--coral);
+  line-height: 1;
+}
+.hist-stat-label { font-size: 0.65rem; color: var(--text); opacity: 0.7; margin-top: 3px; }
+
+.historial-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.historial-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: 10px 14px;
+}
+.hist-icon  { font-size: 1.1rem; flex-shrink: 0; }
+.hist-info  { flex: 1; }
+.hist-fecha { font-size: 0.82rem; font-weight: 600; color: var(--text-h); text-transform: capitalize; }
+.hist-hora  { font-size: 0.72rem; color: var(--text); opacity: 0.6; margin-top: 1px; }
+.hist-puntos {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 0.85rem;
+  color: var(--coral);
+  white-space: nowrap;
+}

@@ -310,7 +310,7 @@ function App() {
       </main>
 
       <footer className="version-footer">
-        Bistro Connect v2.7 · {config.nombreBistro}
+        Bistro Connect v2.8 · {config.nombreBistro}
       </footer>
     </div>
   );

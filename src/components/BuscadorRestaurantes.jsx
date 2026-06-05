@@ -1,26 +1,24 @@
 import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../services/supabaseClient';
 
-/**
- * BuscadorRestaurantes
- * Pantalla inicial cuando el cliente entra por el QR GENERAL (sin ?r=).
- * - Muestra los restaurantes en los que YA está inscrito (desde localStorage).
- * - Permite buscar TODOS los restaurantes afiliados (tabla `configuracion`).
- * - Al elegir uno, redirige a /?r=<nombre> para inscribirse / entrar.
- */
+const calcularNivel = (ciclos = 0) => {
+  if (ciclos >= 10) return { label: 'Oro',    emoji: '🥇' };
+  if (ciclos >= 5)  return { label: 'Plata',  emoji: '🥈' };
+  return                   { label: 'Bronce', emoji: '🥉' };
+};
+
 export const BuscadorRestaurantes = () => {
   const [restaurantes, setRestaurantes] = useState([]);
   const [busqueda, setBusqueda]         = useState('');
   const [cargando, setCargando]         = useState(true);
   const [error, setError]               = useState(null);
+  // datos enriquecidos del cliente por sede: { [restauranteId]: { puntos, ciclos, nombre } }
+  const [datosPorSede, setDatosPorSede] = useState({});
 
-  // IDs de restaurantes donde el cliente ya está inscrito
+  // IDs/nombres de restaurantes donde el cliente ya está inscrito
   const misInscripciones = useMemo(() => {
-    try {
-      return JSON.parse(localStorage.getItem('bistro_multisede') || '{}');
-    } catch {
-      return {};
-    }
+    try { return JSON.parse(localStorage.getItem('bistro_multisede') || '{}'); }
+    catch { return {}; }
   }, []);
 
   useEffect(() => {
@@ -33,6 +31,24 @@ export const BuscadorRestaurantes = () => {
           .order('nombre', { ascending: true });
         if (err) throw err;
         setRestaurantes(data || []);
+
+        // Enriquecer mis sedes con puntos y nivel
+        const idsClientes = Object.values(misInscripciones).filter(Boolean);
+        if (idsClientes.length > 0) {
+          const { data: clientesData } = await supabase
+            .from('clientes')
+            .select('id, nombre, puntos, ciclos_completados, restaurante_id')
+            .in('id', idsClientes);
+          const mapa = {};
+          (clientesData || []).forEach(c => {
+            mapa[c.restaurante_id] = {
+              puntos:  c.puntos || 0,
+              ciclos:  c.ciclos_completados || 0,
+              nombre:  c.nombre,
+            };
+          });
+          setDatosPorSede(mapa);
+        }
       } catch (e) {
         console.error(e);
         setError('No pudimos cargar los restaurantes. Intenta de nuevo.');
@@ -41,11 +57,10 @@ export const BuscadorRestaurantes = () => {
       }
     };
     cargar();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const irA = (nombre) => {
-    window.location.href = `/?r=${encodeURIComponent(nombre)}`;
-  };
+  const irA = (nombre) => { window.location.href = `/?r=${encodeURIComponent(nombre)}`; };
 
   const filtrados = restaurantes.filter(r =>
     r.nombre?.toLowerCase().includes(busqueda.trim().toLowerCase())
@@ -62,25 +77,38 @@ export const BuscadorRestaurantes = () => {
         <p style={styles.subtitle}>Encuentra tu restaurante favorito</p>
       </header>
 
-      {/* Mis restaurantes */}
+      {/* Mis restaurantes (vista multi-sede enriquecida) */}
       {misRestaurantes.length > 0 && (
         <section style={styles.section}>
           <p style={styles.sectionTitle}>Mis restaurantes</p>
           <div style={styles.list}>
-            {misRestaurantes.map(r => (
-              <button key={r.id} onClick={() => irA(r.nombre)} style={{ ...styles.card, ...styles.cardMine }}>
-                <div style={styles.cardLeft}>
-                  <div style={{ ...styles.avatar, ...styles.avatarMine }}>
-                    {r.nombre?.charAt(0).toUpperCase()}
+            {misRestaurantes.map(r => {
+              const datos = datosPorSede[r.id];
+              const nivel = datos ? calcularNivel(datos.ciclos) : null;
+              return (
+                <button key={r.id} onClick={() => irA(r.nombre)} style={{ ...styles.card, ...styles.cardMine }}>
+                  <div style={styles.cardLeft}>
+                    <div style={{ ...styles.avatar, ...styles.avatarMine }}>
+                      {r.nombre?.charAt(0).toUpperCase()}
+                    </div>
+                    <div>
+                      <div style={styles.cardName}>{r.nombre}</div>
+                      {datos ? (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3 }}>
+                          <span style={styles.badge}>
+                            {nivel.emoji} {nivel.label} · {datos.puntos} pts
+                          </span>
+                          <span style={styles.ciclosBadge}>{datos.ciclos} ciclo{datos.ciclos !== 1 ? 's' : ''}</span>
+                        </div>
+                      ) : (
+                        <div style={styles.badge}>✓ Inscrito · Ver mi perfil</div>
+                      )}
+                    </div>
                   </div>
-                  <div>
-                    <div style={styles.cardName}>{r.nombre}</div>
-                    <div style={styles.badge}>✓ Inscrito · Ver mi perfil</div>
-                  </div>
-                </div>
-                <span style={styles.arrow}>→</span>
-              </button>
-            ))}
+                  <span style={styles.arrow}>→</span>
+                </button>
+              );
+            })}
           </div>
         </section>
       )}
@@ -111,21 +139,30 @@ export const BuscadorRestaurantes = () => {
         {!cargando && !error && (
           <div style={styles.list}>
             {filtrados.length === 0 ? (
-              <p style={styles.empty}>No encontramos restaurantes con “{busqueda}”.</p>
+              <p style={styles.empty}>No encontramos restaurantes con "{busqueda}".</p>
             ) : (
               filtrados.map(r => {
                 const inscrito = !!(misInscripciones[r.nombre] || misInscripciones[r.id]);
+                const datos    = inscrito ? datosPorSede[r.id] : null;
+                const nivel    = datos ? calcularNivel(datos.ciclos) : null;
                 return (
-                  <button key={r.id} onClick={() => irA(r.nombre)} style={styles.card}>
+                  <button key={r.id} onClick={() => irA(r.nombre)}
+                    style={inscrito ? { ...styles.card, ...styles.cardMine } : styles.card}>
                     <div style={styles.cardLeft}>
-                      <div style={styles.avatar}>
+                      <div style={inscrito ? { ...styles.avatar, ...styles.avatarMine } : styles.avatar}>
                         {r.nombre?.charAt(0).toUpperCase()}
                       </div>
                       <div>
                         <div style={styles.cardName}>{r.nombre}</div>
-                        <div style={styles.cardHint}>
-                          {inscrito ? '✓ Ya inscrito' : 'Toca para inscribirte'}
-                        </div>
+                        {datos ? (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3 }}>
+                            <span style={styles.badge}>{nivel.emoji} {nivel.label} · {datos.puntos} pts</span>
+                          </div>
+                        ) : (
+                          <div style={styles.cardHint}>
+                            {inscrito ? '✓ Ya inscrito' : 'Toca para inscribirte'}
+                          </div>
+                        )}
                       </div>
                     </div>
                     <span style={styles.arrow}>→</span>
@@ -137,7 +174,7 @@ export const BuscadorRestaurantes = () => {
         )}
       </section>
 
-      <footer style={styles.footer}>Bistro Connect v2.7</footer>
+      <footer style={styles.footer}>Bistro Connect v2.8</footer>
     </div>
   );
 };
@@ -154,7 +191,7 @@ const styles = {
     margin: '0 auto',
     width: '100%',
   },
-  header: { textAlign: 'center' },
+  header:    { textAlign: 'center' },
   title: {
     fontFamily: 'var(--font-display)',
     fontSize: '1.9rem',
@@ -163,9 +200,9 @@ const styles = {
     letterSpacing: '-0.02em',
     margin: 0,
   },
-  dot: { color: 'var(--coral)' },
+  dot:      { color: 'var(--coral)' },
   subtitle: { fontSize: '0.875rem', color: 'var(--text)', opacity: 0.7, margin: '0.4rem 0 0' },
-  section: { display: 'flex', flexDirection: 'column', gap: '0.75rem' },
+  section:  { display: 'flex', flexDirection: 'column', gap: '0.75rem' },
   sectionTitle: {
     fontSize: '10px',
     fontWeight: 700,
@@ -175,17 +212,10 @@ const styles = {
     opacity: 0.6,
     margin: 0,
   },
-  searchWrap: {
-    position: 'relative',
-    display: 'flex',
-    alignItems: 'center',
-  },
+  searchWrap: { position: 'relative', display: 'flex', alignItems: 'center' },
   searchIcon: {
-    position: 'absolute',
-    left: 14,
-    fontSize: '0.95rem',
-    opacity: 0.55,
-    pointerEvents: 'none',
+    position: 'absolute', left: 14,
+    fontSize: '0.95rem', opacity: 0.55, pointerEvents: 'none',
   },
   searchInput: {
     width: '100%',
@@ -198,7 +228,7 @@ const styles = {
     color: 'var(--text-h)',
     outline: 'none',
   },
-  list: { display: 'flex', flexDirection: 'column', gap: '0.6rem' },
+  list:  { display: 'flex', flexDirection: 'column', gap: '0.6rem' },
   card: {
     display: 'flex',
     alignItems: 'center',
@@ -217,7 +247,7 @@ const styles = {
     border: '1px solid var(--coral-border)',
     background: 'var(--coral-light)',
   },
-  cardLeft: { display: 'flex', alignItems: 'center', gap: '0.85rem' },
+  cardLeft:  { display: 'flex', alignItems: 'center', gap: '0.85rem' },
   avatar: {
     width: 42, height: 42,
     borderRadius: '50%',
@@ -236,9 +266,17 @@ const styles = {
     fontSize: '0.95rem',
     fontFamily: 'var(--font-display)',
   },
-  cardHint: { fontSize: '0.75rem', color: 'var(--text)', opacity: 0.7, marginTop: 2 },
-  badge: { fontSize: '0.72rem', color: 'var(--coral)', marginTop: 2, fontWeight: 600 },
-  arrow: { fontSize: '1.1rem', opacity: 0.5 },
+  cardHint:   { fontSize: '0.75rem', color: 'var(--text)', opacity: 0.7, marginTop: 2 },
+  badge:      { fontSize: '0.72rem', color: 'var(--coral)', fontWeight: 600 },
+  ciclosBadge: {
+    fontSize: '0.68rem',
+    background: 'rgba(255,255,255,0.6)',
+    color: '#666',
+    borderRadius: 99,
+    padding: '1px 7px',
+    fontWeight: 600,
+  },
+  arrow:  { fontSize: '1.1rem', opacity: 0.5 },
   empty: { fontSize: '0.85rem', color: 'var(--text)', opacity: 0.6, textAlign: 'center', padding: '1rem' },
   loadingRow: {
     display: 'flex', alignItems: 'center', gap: '0.6rem',
