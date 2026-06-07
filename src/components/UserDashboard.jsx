@@ -123,8 +123,11 @@ export const UserDashboard = ({
     window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
   };
 
-  // ── Validar ubicación — BUG 1 CORREGIDO ───────────────────────────────
-  // setProcesando(false) ahora está garantizado en TODOS los casos con finally
+  // ── Validar ubicación ─────────────────────────────────────────────────
+  // Estrategia en cascada:
+  //   1. Alta precisión (GPS real, ideal en móvil) — timeout 8 s
+  //   2. Si falla → baja precisión (WiFi / IP) — funciona en PC y móvil sin GPS claro
+  //   3. finally garantiza que el botón siempre se desbloquea
   const validarUbicacion = async () => {
     if (procesando) return;
     setProcesando(true);
@@ -135,56 +138,73 @@ export const UserDashboard = ({
 
       if (error || !restData) {
         alert('No se pudo obtener la ubicación de esta sede.');
-        return; // finally libera procesando
+        return;
       }
 
       const rLat  = parseFloat(restData.latitud);
       const rLon  = parseFloat(restData.longitud);
       const radio = restData.radio_aviso || 200;
 
-      await new Promise((resolve, reject) => {
+      // Procesa la posición obtenida y decide si mostrar PIN o mensaje de distancia
+      const procesarPosicion = async (pos) => {
+        const { latitude: uLat, longitude: uLon } = pos.coords;
+        const distM = calcularDistancia(uLat, uLon, rLat, rLon) * 1000;
+
+        supabase.from('metricas_proximidad').insert([{
+          cliente:              cliente?.nombre || 'Anónimo',
+          restaurante:          nombreRestaurante,
+          restaurante_id:       restauranteId,
+          distancia:            Math.round(distM),
+          dentro_del_rango_800: distM <= 800,
+          es_exito_total:       distM <= radio,
+        }]).catch(() => {});
+
+        if (distM <= radio) {
+          setEsCerca(true);
+          setMostrarPin(true);
+        } else {
+          alert(
+            `📍 Estás a ${Math.round(distM)} m del restaurante.\n` +
+            `Debes estar a menos de ${radio} m para confirmar tu llegada.`
+          );
+        }
+      };
+
+      await new Promise((resolve) => {
+        // Intento 1: GPS alta precisión (mejor exactitud en móvil al aire libre)
         navigator.geolocation.getCurrentPosition(
-          async (pos) => {
-            try {
-              const { latitude: uLat, longitude: uLon } = pos.coords;
-              const distM = calcularDistancia(uLat, uLon, rLat, rLon) * 1000;
-
-              supabase.from('metricas_proximidad').insert([{
-                cliente:             cliente?.nombre || 'Anónimo',
-                restaurante:         nombreRestaurante,
-                restaurante_id:      restauranteId,
-                distancia:           Math.round(distM),
-                dentro_del_rango_800: distM <= 800,
-                es_exito_total:      distM <= radio,
-              }]).catch(() => {});
-
-              if (distM <= radio) {
-                setEsCerca(true);
-                setMostrarPin(true);
-              } else {
-                alert(`📍 Estás a ${Math.round(distM)}m. Debes estar a menos de ${radio}m.`);
-              }
-              resolve();
-            } catch (e) { reject(e); }
+          async (pos) => { await procesarPosicion(pos); resolve(); },
+          () => {
+            // Intento 1 falló → Intento 2: baja precisión por WiFi/IP
+            // Esto funciona en PC, interiores y móviles sin señal GPS directa
+            navigator.geolocation.getCurrentPosition(
+              async (pos) => { await procesarPosicion(pos); resolve(); },
+              (err) => {
+                if (err.code === 1) {
+                  alert(
+                    '❌ Permiso de ubicación denegado.\n' +
+                    'Ve a Configuración del navegador → Privacidad → Ubicación\n' +
+                    'y permite el acceso para este sitio.'
+                  );
+                } else {
+                  alert(
+                    '📡 No se pudo obtener tu ubicación.\n' +
+                    'Asegúrate de tener GPS o WiFi activos e inténtalo de nuevo.'
+                  );
+                }
+                resolve();
+              },
+              { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 }
+            );
           },
-          (err) => {
-            const msgs = {
-              1: 'Permite el acceso a tu ubicación en el navegador.',
-              2: 'No se pudo determinar tu posición. Intenta en un espacio abierto.',
-              3: 'Señal GPS débil. Intenta al aire libre.',
-            };
-            alert(msgs[err.code] || 'Activa el GPS para confirmar tu llegada.');
-            resolve(); // resolve (no reject) para que finally se ejecute limpio
-          },
-          { enableHighAccuracy: true, timeout: 15000 }
+          { enableHighAccuracy: true, timeout: 8000, maximumAge: 10000 }
         );
       });
 
     } catch {
       alert('Error inesperado. Intenta de nuevo.');
     } finally {
-      // SIEMPRE se ejecuta: libera el botón sin importar qué pasó
-      setProcesando(false);
+      setProcesando(false); // siempre desbloquea el botón
     }
   };
 
