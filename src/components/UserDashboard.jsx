@@ -200,14 +200,21 @@ export const UserDashboard = ({
       const { latitude: uLat, longitude: uLon } = pos.coords;
       const distM = calcularDistancia(uLat, uLon, rLat, rLon) * 1000;
 
-      supabase.from('metricas_proximidad').insert([{
+      const { error: insertError } = await supabase.from('metricas_proximidad').insert([{
         cliente:              cliente?.nombre || 'Anónimo',
         restaurante:          nombreRestaurante,
         restaurante_id:       restauranteId,
         distancia:            Math.round(distM),
         dentro_del_rango_800: distM <= 800,
         es_exito_total:       distM <= radio,
-      }]).catch(() => {});
+      }]);
+
+      if (insertError) {
+        // No detiene el flujo del usuario (la confirmación de llegada no depende
+        // de la métrica), pero queda registrado para diagnosticar problemas de
+        // RLS/permisos en la tabla metricas_proximidad sin afectar al cliente.
+        console.error('[validarUbicacion] Error al insertar en metricas_proximidad:', insertError);
+      }
 
       if (distM <= radio) {
         setEsCerca(true);
@@ -219,7 +226,8 @@ export const UserDashboard = ({
         );
       }
 
-    } catch {
+    } catch (err) {
+      console.error('[validarUbicacion] Error inesperado:', err);
       alert('Error inesperado. Intenta de nuevo.');
     } finally {
       setProcesando(false); // siempre desbloquea el botón
