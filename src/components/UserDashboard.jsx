@@ -13,7 +13,7 @@ const calcularDistancia = (lat1, lon1, lat2, lon2) => {
   return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
 };
 
-const TOTAL_PUNTOS = 20;
+// TOTAL_PUNTOS eliminado — ahora se lee de la tabla conexion (configurable por admin)
 
 // ─── Badge de distancia ────────────────────────────────────────────────────────
 const DistanciaBadge = ({ distancia, esCerca }) => {
@@ -60,11 +60,14 @@ export const UserDashboard = ({
   distancia,        // ← NUEVO: metros desde App.jsx (se actualiza con watchPosition)
   esCerca: inicialEsCerca,
 }) => {
-  const [cliente,      setCliente]      = useState(null);
-  const [procesando,   setProcesando]   = useState(false);
-  const [esCerca,      setEsCerca]      = useState(inicialEsCerca || false);
-  const [mostrarPin,   setMostrarPin]   = useState(false);
-  const [pinIngresado, setPinIngresado] = useState('');
+  const [cliente,        setCliente]        = useState(null);
+  const [procesando,     setProcesando]     = useState(false);
+  const [esCerca,        setEsCerca]        = useState(inicialEsCerca || false);
+  const [mostrarPin,     setMostrarPin]     = useState(false);
+  const [pinIngresado,   setPinIngresado]   = useState('');
+  // Configuración dinámica del restaurante (se lee de conexion al montar)
+  const [puntosLlegada,  setPuntosLlegada]  = useState(2);
+  const [metaPuntos,     setMetaPuntos]     = useState(20);
   const pinInputRef = useRef(null);
 
   // Sincronizar esCerca cuando cambia la distancia desde App.jsx
@@ -81,6 +84,22 @@ export const UserDashboard = ({
       Notification.requestPermission().catch(() => {});
     }
   }, []);
+
+  // ── Cargar configuración del restaurante (puntos y meta dinámica) ──────
+  useEffect(() => {
+    if (!restauranteId) return;
+    supabase
+      .from('conexion')
+      .select('puntos_llegada, meta_puntos')
+      .eq('restaurante_id', restauranteId)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data) {
+          if (data.puntos_llegada) setPuntosLlegada(data.puntos_llegada);
+          if (data.meta_puntos)    setMetaPuntos(data.meta_puntos);
+        }
+      });
+  }, [restauranteId]);
 
   // ── Cargar cliente ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -117,7 +136,7 @@ export const UserDashboard = ({
   const enviarRecordatorioWhatsApp = () => {
     const msg =
       `*¡FELICIDADES!* 🎉\n\n` +
-      `Has completado tus 20 puntos en *${nombreRestaurante}*.\n\n` +
+      `Has completado tus ${metaPuntos} puntos en *${nombreRestaurante}*.\n\n` +
       `🎫 *CUPÓN DE PREMIO*\nCódigo: ${clienteId.substring(0, 5).toUpperCase()}\n\n` +
       `⚠️ Preséntalo al mesero. Tienes ${diasRestantes} días.\n¡Te esperamos! 🍕`;
     window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
@@ -160,7 +179,7 @@ export const UserDashboard = ({
     setProcesando(true);
     try {
       const { data: restData, error } = await supabase
-        .from('conexion').select('latitud, longitud, radio_aviso')
+        .from('conexion').select('latitud, longitud, radio_aviso, puntos_llegada, meta_puntos')
         .eq('restaurante_id', restauranteId).maybeSingle();
 
       if (error || !restData) {
@@ -171,6 +190,10 @@ export const UserDashboard = ({
       const rLat  = parseFloat(restData.latitud);
       const rLon  = parseFloat(restData.longitud);
       const radio = restData.radio_aviso || 200;
+
+      // Actualizar config dinámica en estado por si cambió desde que montó el componente
+      if (restData.puntos_llegada) setPuntosLlegada(restData.puntos_llegada);
+      if (restData.meta_puntos)    setMetaPuntos(restData.meta_puntos);
 
       // Red de seguridad: si tras 12s no hay ni éxito ni error, forzamos el rechazo
       // para que el botón NUNCA se quede colgado, sin importar el navegador.
@@ -247,8 +270,8 @@ export const UserDashboard = ({
         return;
       }
 
-      const nuevosPuntos = (db.puntos || 0) + 2;
-      const tienePremio  = nuevosPuntos >= TOTAL_PUNTOS;
+      const nuevosPuntos = (db.puntos || 0) + puntosLlegada;
+      const tienePremio  = nuevosPuntos >= metaPuntos;
 
       const updates = {
         puntos:        nuevosPuntos,
@@ -265,8 +288,8 @@ export const UserDashboard = ({
 
       setCliente(prev => ({ ...prev, ...updates, pin_individual: db.pin_individual }));
 
-      if (tienePremio) alert('🎉 ¡20 puntos! Muéstrale esto al mesero para reclamar tu premio.');
-      else alert(`✅ ¡+2 puntos! Ahora tienes ${nuevosPuntos} puntos.`);
+      if (tienePremio) alert(`🎉 ¡${metaPuntos} puntos! Muéstrale esto al mesero para reclamar tu premio.`);
+      else alert(`✅ ¡+${puntosLlegada} puntos! Ahora tienes ${nuevosPuntos} puntos.`);
 
       setMostrarPin(false);
       setPinIngresado('');
@@ -291,9 +314,9 @@ export const UserDashboard = ({
   if (!cliente) return <div className="loading-container">Sincronizando…</div>;
 
   const puntos     = cliente.puntos || 0;
-  const progreso   = Math.min(puntos / TOTAL_PUNTOS, 1);
+  const progreso   = Math.min(puntos / metaPuntos, 1);
   const DOTS       = 10;
-  const dotsLlenos = Math.floor((puntos / TOTAL_PUNTOS) * DOTS);
+  const dotsLlenos = Math.floor((puntos / metaPuntos) * DOTS);
 
   // ── Render ─────────────────────────────────────────────────────────────
   return (
@@ -328,7 +351,7 @@ export const UserDashboard = ({
       <div className="progress-section">
         <div className="progress-header">
           <span className="progress-label">Progreso hacia tu premio</span>
-          <span className="progress-count">{puntos} / {TOTAL_PUNTOS} pts</span>
+          <span className="progress-count">{puntos} / {metaPuntos} pts</span>
         </div>
         <div className="progress-track">
           <div className="progress-fill" style={{ width: `${progreso * 100}%` }} />
@@ -350,7 +373,7 @@ export const UserDashboard = ({
       <div className="actions-stack">
         {!mostrarPin ? (
           <button onClick={validarUbicacion} disabled={procesando} className="btn-primary">
-            {procesando ? 'Validando ubicación…' : '📍 Confirmar llegada (+2)'}
+            {procesando ? 'Validando ubicación…' : `📍 Confirmar llegada (+${puntosLlegada})`}
           </button>
         ) : (
           <div className="pin-container animate-fade-in">
