@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { GeofencingProvider } from './components/GeofencingProvider';
 import { RegistrationForm } from './components/RegistrationForm';
 import { SuccessCard }      from './components/manejarRegistro';
 import { UserDashboard }    from './components/UserDashboard';
@@ -316,4 +317,12 @@ function App() {
   );
 }
 
-export default App;
+function AppConGeofencing() {
+  return (
+    <GeofencingProvider>
+      <App />
+    </GeofencingProvider>
+  );
+}
+
+export default AppConGeofencing;
