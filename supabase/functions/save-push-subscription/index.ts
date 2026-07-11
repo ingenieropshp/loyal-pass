@@ -34,9 +34,16 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const { subscription } = await req.json();
+    const { subscription, restauranteId } = await req.json();
+
     if (!subscription?.endpoint) {
       return new Response(JSON.stringify({ error: 'Suscripción inválida' }), {
+        status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    if (!restauranteId) {
+      return new Response(JSON.stringify({ error: 'Falta restauranteId' }), {
         status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
@@ -53,9 +60,10 @@ Deno.serve(async (req: Request) => {
         {
           endpoint:          subscription.endpoint,
           subscription_json: subscription,
+          restaurante_id:    restauranteId,
           updated_at:        new Date().toISOString(),
         },
-        { onConflict: 'endpoint' }
+        { onConflict: 'endpoint,restaurante_id' }
       );
 
     if (error) throw error;

@@ -146,13 +146,19 @@ Deno.serve(async (req: Request) => {
 
     const subsToNotify = subscription ? [subscription] : [];
 
-    // Si no viene suscripción inline, buscar en la tabla
+    // Si no viene suscripción inline, buscar únicamente las suscripciones
+    // registradas para ESTE restaurante (segmentación correcta).
     if (subsToNotify.length === 0) {
-      const { data: subs } = await supabase
+      const { data: subs, error: errorSubs } = await supabase
         .from('push_subscriptions')
         .select('subscription_json')
-        .limit(10);
-      if (subs?.length) subsToNotify.push(...subs.map((s: any) => s.subscription_json));
+        .eq('restaurante_id', restauranteId);
+
+      if (errorSubs) {
+        console.error('[check-geofence] Error consultando suscripciones:', errorSubs.message);
+      } else if (subs?.length) {
+        subsToNotify.push(...subs.map((s: any) => s.subscription_json));
+      }
     }
 
     if (subsToNotify.length === 0) {

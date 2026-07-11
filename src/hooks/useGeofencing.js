@@ -80,8 +80,9 @@ export function useGeofencing(restaurantes = []) {
   useEffect(() => { restaurantesRef.current = restaurantes; }, [restaurantes]);
   useEffect(() => { suscripcionRef.current  = suscripcion;  }, [suscripcion]);
 
-  // ── 1. Registrar Service Worker y obtener suscripción push ──────────────────
-  const inicializarSW = useCallback(async () => {
+  // ── 1. Registrar Service Worker y obtener la PushSubscription del navegador ──
+  //    (esto es global al dispositivo, NO pertenece a ningún restaurante todavía)
+  const obtenerSuscripcionNavegador = useCallback(async () => {
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
       console.warn('[Geofencing] Push no soportado en este navegador.');
       return null;
@@ -102,8 +103,14 @@ export function useGeofencing(restaurantes = []) {
       });
     }
 
-    // Persistir la suscripción en Supabase (tabla push_subscriptions)
-    // para que el backend pueda enviarle pushes más tarde
+    return sub;
+  }, []);
+
+  // ── 1b. Persistir la suscripción para UN restaurante específico ─────────────
+  //    Se llama cada vez que el usuario entra en rango de un restaurante nuevo,
+  //    así push_subscriptions queda correctamente segmentada (endpoint, restaurante_id).
+  const persistirSuscripcion = useCallback(async (sub, restauranteId) => {
+    if (!sub || !restauranteId) return;
     try {
       await fetch(`${EDGE_FN_URL}/save-push-subscription`, {
         method:  'POST',
@@ -112,14 +119,12 @@ export function useGeofencing(restaurantes = []) {
           'apikey':        import.meta.env.VITE_SUPABASE_ANON_KEY,
           'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
         },
-        body:    JSON.stringify({ subscription: sub.toJSON() }),
+        body: JSON.stringify({ subscription: sub.toJSON(), restauranteId }),
       });
     } catch (err) {
-      // No es crítico — el push aún puede funcionar si la sub ya estaba guardada
+      // No es crítico — check-geofence aún puede recibir la sub inline como fallback
       console.warn('[Geofencing] No se pudo persistir la suscripción:', err.message);
     }
-
-    return sub;
   }, []);
 
   // ── 2. Procesar posición GPS: calcular distancias y disparar push ────────────
@@ -143,9 +148,15 @@ export function useGeofencing(restaurantes = []) {
       if (dentroAhora) enRango.push(resto.restaurante_id || resto.id);
 
       if (dentroAhora && cooldownExpirado(resto.restaurante_id || resto.id)) {
+        const restauranteId = resto.restaurante_id || resto.id;
+
         // Marcar cooldown ANTES del fetch para evitar doble disparo en caso de
         // respuesta lenta + nueva posición GPS casi simultánea
-        setCooldownTs(resto.restaurante_id || resto.id);
+        setCooldownTs(restauranteId);
+
+        // Asegurar que este dispositivo quede suscrito a ESTE restaurante
+        // (no bloquea el flujo si falla; check-geofence recibe la sub inline como fallback)
+        await persistirSuscripcion(sub, restauranteId);
 
         // Llamar a la Edge Function para validar server-side y enviar el push
         try {
@@ -157,7 +168,7 @@ export function useGeofencing(restaurantes = []) {
               'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
             },
             body: JSON.stringify({
-              restauranteId: resto.restaurante_id || resto.id,
+              restauranteId,
               latitudUsuario:  uLat,
               longitudUsuario: uLon,
               subscription:    sub?.toJSON() ?? null,
@@ -165,14 +176,14 @@ export function useGeofencing(restaurantes = []) {
           });
         } catch (err) {
           // Revertir cooldown si el fetch falla para que reintente en el próximo ciclo
-          localStorage.removeItem(`${COOLDOWN_KEY_PREFIX}${resto.restaurante_id || resto.id}`);
+          localStorage.removeItem(`${COOLDOWN_KEY_PREFIX}${restauranteId}`);
           console.error('[Geofencing] Error al llamar check-geofence:', err.message);
         }
       }
     }
 
     setDentroDeRango(enRango);
-  }, []);
+  }, [persistirSuscripcion]);
 
   // ── 3. Iniciar rastreo ───────────────────────────────────────────────────────
   const iniciarRastreo = useCallback(async () => {
@@ -190,7 +201,7 @@ export function useGeofencing(restaurantes = []) {
     }
 
     if (notifPermiso === 'granted') {
-      const sub = await inicializarSW();
+      const sub = await obtenerSuscripcionNavegador();
       setSuscripcion(sub);
     }
     // Si el usuario rechaza las notificaciones, el rastreo GPS igual funciona
@@ -210,7 +221,7 @@ export function useGeofencing(restaurantes = []) {
     );
 
     setEstado('rastreando');
-  }, [inicializarSW, procesarPosicion]);
+  }, [obtenerSuscripcionNavegador, procesarPosicion]);
 
   // ── 4. Detener rastreo ───────────────────────────────────────────────────────
   const detenerRastreo = useCallback(() => {
