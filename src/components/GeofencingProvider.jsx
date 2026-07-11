@@ -1,85 +1,87 @@
 /**
  * GeofencingProvider.jsx — Bistro Connect
  *
- * Carga los restaurantes activos de Supabase (tabla `conexion`)
- * y activa el hook useGeofencing. Se monta una sola vez en App.jsx.
- *
- * Expone el contexto GeofencingContext para que cualquier componente
- * hijo pueda saber si el usuario está dentro del rango de algún local.
- *
- * Uso en App.jsx:
- *   <GeofencingProvider>
- *     <App />
- *   </GeofencingProvider>
- *
- * Uso en cualquier componente hijo:
- *   const { dentroDeRango, estado } = useGeofencingContext();
+ * Carga los restaurantes activos de Supabase (tablas `conexion` + `configuracion`)
+ * con dos queries simples (sin join) para máxima compatibilidad con RLS.
+ * Si falla, lo registra en consola pero NO rompe el resto de la app.
  */
 
 import { createContext, useContext, useEffect, useState } from 'react';
 import { supabase }       from '../services/supabaseClient';
 import { useGeofencing }  from '../hooks/useGeofencing';
 
-// ── Contexto ──────────────────────────────────────────────────────────────────
 const GeofencingContext = createContext({
   estado:        'idle',
   dentroDeRango: [],
   restaurantes:  [],
+  suscripcion:   null,
 });
 
 export const useGeofencingContext = () => useContext(GeofencingContext);
 
-// ── Provider ──────────────────────────────────────────────────────────────────
 export function GeofencingProvider({ children }) {
   const [restaurantes, setRestaurantes] = useState([]);
 
-  // Cargar restaurantes activos con coordenadas desde Supabase
   useEffect(() => {
     const cargar = async () => {
-      const { data, error } = await supabase
-        .from('conexion')
-        .select(`
-          restaurante_id,
-          latitud,
-          longitud,
-          radio_aviso,
-          puntos_llegada,
-          meta_puntos,
-          configuracion (
-            id,
-            nombre,
-            activo,
-            mensaje_promo
-          )
-        `)
-        .not('latitud', 'is', null)
-        .not('longitud', 'is', null);
+      try {
+        // Query 1: coordenadas y config de puntos (tabla conexion)
+        const { data: conexiones, error: err1 } = await supabase
+          .from('conexion')
+          .select('restaurante_id, latitud, longitud, radio_aviso, puntos_llegada, meta_puntos, mensaje_promo')
+          .not('latitud', 'is', null)
+          .not('longitud', 'is', null);
 
-      if (error) {
-        console.error('[GeofencingProvider] Error cargando restaurantes:', error.message);
-        return;
+        if (err1) {
+          console.error('[GeofencingProvider] Error en tabla conexion:', err1.message);
+          return;
+        }
+
+        if (!conexiones || conexiones.length === 0) return;
+
+        // Query 2: nombres y estado activo (tabla configuracion)
+        const ids = conexiones.map(c => c.restaurante_id).filter(Boolean);
+        const { data: configs, error: err2 } = await supabase
+          .from('configuracion')
+          .select('id, nombre, activo')
+          .in('id', ids);
+
+        if (err2) {
+          console.warn('[GeofencingProvider] No se pudo cargar configuracion:', err2.message);
+          // Continuar sin filtrar por activo si falla esta query
+        }
+
+        // Combinar los dos resultados manualmente
+        const configMap = {};
+        (configs || []).forEach(c => { configMap[c.id] = c; });
+
+        const activos = conexiones
+          .filter(r => {
+            const cfg = configMap[r.restaurante_id];
+            // Si no tenemos config, incluimos el restaurante por defecto
+            return !cfg || cfg.activo !== false;
+          })
+          .map(r => ({
+            restaurante_id: r.restaurante_id,
+            nombre:         configMap[r.restaurante_id]?.nombre ?? 'Restaurante',
+            latitud:        parseFloat(r.latitud),
+            longitud:       parseFloat(r.longitud),
+            radio_aviso:    r.radio_aviso    ?? 200,
+            puntos_llegada: r.puntos_llegada ?? 2,
+            meta_puntos:    r.meta_puntos    ?? 20,
+            mensaje_promo:  r.mensaje_promo  ?? '',
+          }));
+
+        setRestaurantes(activos);
+      } catch (err) {
+        // Error inesperado: loguear pero NO romper la app
+        console.error('[GeofencingProvider] Error inesperado:', err.message);
       }
-
-      // Filtrar solo restaurantes activos y mapear a la forma que espera useGeofencing
-      const activos = (data || [])
-        .filter(r => r.configuracion?.activo !== false)
-        .map(r => ({
-          restaurante_id:  r.restaurante_id,
-          nombre:          r.configuracion?.nombre ?? 'Restaurante',
-          latitud:         parseFloat(r.latitud),
-          longitud:        parseFloat(r.longitud),
-          radio_aviso:     r.radio_aviso ?? 200,
-          puntos_llegada:  r.puntos_llegada ?? 2,
-          meta_puntos:     r.meta_puntos ?? 20,
-          mensaje_promo:   r.configuracion?.mensaje_promo ?? '',
-        }));
-
-      setRestaurantes(activos);
     };
 
     cargar();
 
-    // Suscripción realtime: si el admin cambia coordenadas, actualizamos en vivo
+    // Realtime: actualizar si el admin cambia coordenadas
     const channel = supabase
       .channel('geofencing-conexion')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'conexion' }, cargar)
@@ -88,6 +90,7 @@ export function GeofencingProvider({ children }) {
     return () => { supabase.removeChannel(channel); };
   }, []);
 
+  // useGeofencing solo se activa si hay restaurantes con coordenadas
   const { estado, dentroDeRango, suscripcion } = useGeofencing(restaurantes);
 
   return (
