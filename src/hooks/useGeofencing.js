@@ -107,7 +107,11 @@ export function useGeofencing(restaurantes = []) {
     try {
       await fetch(`${EDGE_FN_URL}/save-push-subscription`, {
         method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type':  'application/json',
+          'apikey':        import.meta.env.VITE_SUPABASE_ANON_KEY,
+          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+        },
         body:    JSON.stringify({ subscription: sub.toJSON() }),
       });
     } catch (err) {
@@ -147,7 +151,11 @@ export function useGeofencing(restaurantes = []) {
         try {
           await fetch(`${EDGE_FN_URL}/check-geofence`, {
             method:  'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+              'Content-Type':  'application/json',
+              'apikey':        import.meta.env.VITE_SUPABASE_ANON_KEY,
+              'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+            },
             body: JSON.stringify({
               restauranteId: resto.restaurante_id || resto.id,
               latitudUsuario:  uLat,
