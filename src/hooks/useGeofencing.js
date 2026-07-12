@@ -108,7 +108,9 @@ export function useGeofencing(restaurantes = []) {
       const urlApp        = `${window.location.origin}/?r=${resto.restaurante_id}`;
 
       await reg.showNotification(`📍 Estás cerca de ${resto.nombre}`, {
-        body:     `${resto.mensaje_promo || 'Confirma tu llegada'} y gana +${puntosLlegada} puntos.`,
+        body: resto.mensaje_geofence?.trim()
+              || resto.mensaje_promo?.trim()
+              || `Confirma tu llegada y gana +${puntosLlegada} puntos`,
         icon:     '/icons/icon-192.png',
         badge:    '/icons/badge-72.png',
         tag:      `bistro-cerca-${resto.restaurante_id}`,
