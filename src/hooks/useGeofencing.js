@@ -1,36 +1,38 @@
 /**
  * useGeofencing.js — Bistro Connect
  *
- * Hook que:
- *  1. Solicita permiso de notificaciones y suscripción WebPush
- *  2. Inicia watchPosition para rastrear al usuario en tiempo real
- *  3. Calcula distancia Haversine a cada restaurante del array
- *  4. Si el usuario entra al rango, llama a la Edge Function para disparar el push
- *  5. Cooldown por localStorage: no repite notif del mismo restaurante antes de N ms
+ * Hook de React que:
+ *  1. Solicita permisos de notificaciones + GPS
+ *  2. Registra la suscripción WebPush en Supabase (tabla push_subscriptions)
+ *  3. Rastrea posición con watchPosition (actualización continua en segundo plano)
+ *  4. Calcula distancia Haversine a cada restaurante del array
+ *  5. Si el usuario entra al rango → llama a la Edge Function via supabase.functions.invoke
+ *  6. Cooldown por localStorage: no repite notif del mismo restaurante antes de 2 horas
  *
- * Uso:
+ * USO:
  *   const { estado, dentroDeRango } = useGeofencing(restaurantes);
  *
- *   `restaurantes` es el array de la tabla `conexion` de Supabase:
- *   [{ restaurante_id, nombre, latitud, longitud, radio_aviso, puntos_llegada, meta_puntos }]
+ * FORMA ESPERADA DE restaurantes[]:
+ *   { restaurante_id, nombre, latitud, longitud, radio_aviso, puntos_llegada }
+ *
+ * COMPATIBILIDAD CON sw.js:
+ *   La Edge Function envía exactamente: titulo, cuerpo, icono, urlMenu,
+ *   restauranteId, puntosLlegada — que son los campos que lee sw.js.
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { supabase } from '../services/supabaseClient';
 
 // ── Constantes ────────────────────────────────────────────────────────────────
-const COOLDOWN_MS        = 2 * 60 * 60 * 1000; // 2 horas entre notifs del mismo restaurante
-const COOLDOWN_KEY_PREFIX = 'bistro_geo_cd_';   // localStorage key prefix
-const VAPID_PUBLIC_KEY    = import.meta.env.VITE_VAPID_PUBLIC_KEY; // ← añadir al .env
-const EDGE_FN_URL         = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1`;
+const COOLDOWN_MS         = 2 * 60 * 60 * 1000; // 2 horas entre notifs del mismo restaurante
+const LS_COOLDOWN_PREFIX  = 'bistro_geo_cd_';
+const VAPID_PUBLIC_KEY    = import.meta.env.VITE_VAPID_PUBLIC_KEY;
 
 // ── Utilidades ────────────────────────────────────────────────────────────────
 
-/**
- * Fórmula de Haversine
- * @returns distancia en metros entre dos puntos geográficos
- */
-function haversineMetros(lat1, lon1, lat2, lon2) {
-  const R    = 6_371_000; // Radio de la Tierra en metros
+/** Fórmula Haversine → distancia en metros */
+function haversineM(lat1, lon1, lat2, lon2) {
+  const R    = 6_371_000;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
   const dLon = ((lon2 - lon1) * Math.PI) / 180;
   const a =
@@ -41,177 +43,187 @@ function haversineMetros(lat1, lon1, lat2, lon2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-/** Convierte la VAPID public key (base64url) a Uint8Array para la suscripción */
-function urlBase64ToUint8Array(base64String) {
-  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
-  const base64  = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-  const raw     = atob(base64);
-  return new Uint8Array([...raw].map(c => c.charCodeAt(0)));
+/** Convierte VAPID public key (base64url) → Uint8Array para PushManager.subscribe */
+function urlBase64ToUint8Array(b64) {
+  const pad  = '='.repeat((4 - (b64.length % 4)) % 4);
+  const base = (b64 + pad).replace(/-/g, '+').replace(/_/g, '/');
+  return new Uint8Array([...atob(base)].map(c => c.charCodeAt(0)));
 }
 
-/** Lee la marca de tiempo del último push para un restaurante */
-function getCooldownTs(restauranteId) {
-  const ts = localStorage.getItem(`${COOLDOWN_KEY_PREFIX}${restauranteId}`);
-  return ts ? parseInt(ts, 10) : 0;
-}
-
-/** Guarda la marca de tiempo del push actual para el cooldown */
-function setCooldownTs(restauranteId) {
-  localStorage.setItem(`${COOLDOWN_KEY_PREFIX}${restauranteId}`, Date.now().toString());
-}
-
-/** Verifica si el cooldown ya expiró */
-function cooldownExpirado(restauranteId) {
-  return Date.now() - getCooldownTs(restauranteId) > COOLDOWN_MS;
-}
+/** Gestión del cooldown en localStorage */
+const cooldown = {
+  get:  (id) => parseInt(localStorage.getItem(`${LS_COOLDOWN_PREFIX}${id}`) || '0', 10),
+  set:  (id) => localStorage.setItem(`${LS_COOLDOWN_PREFIX}${id}`, Date.now().toString()),
+  clear:(id) => localStorage.removeItem(`${LS_COOLDOWN_PREFIX}${id}`),
+  ok:   (id) => Date.now() - cooldown.get(id) > COOLDOWN_MS,
+};
 
 // ── Hook principal ────────────────────────────────────────────────────────────
 export function useGeofencing(restaurantes = []) {
+  /**
+   * estados:
+   *  'idle'                → sin iniciar
+   *  'solicitando_permiso' → esperando respuesta del usuario
+   *  'rastreando'          → watchPosition activo
+   *  'sin_permiso'         → usuario denegó GPS o notificaciones
+   *  'no_soportado'        → navegador sin geolocation/SW/Push
+   *  'error'               → error inesperado
+   */
   const [estado,        setEstado]        = useState('idle');
-  // 'idle' | 'solicitando_permiso' | 'rastreando' | 'sin_permiso' | 'error'
-  const [dentroDeRango, setDentroDeRango] = useState([]); // IDs de restaurantes en rango
-  const [suscripcion,   setSuscripcion]   = useState(null);
+  const [dentroDeRango, setDentroDeRango] = useState([]); // IDs de restaurantes en rango ahora
 
   const watchIdRef      = useRef(null);
-  const suscripcionRef  = useRef(null); // para acceder en el callback de watchPosition
-  const restaurantesRef = useRef([]);   // ref para no re-crear el watcher al cambiar el array
+  const suscripcionRef  = useRef(null);  // PushSubscription activa
+  const restaurantesRef = useRef([]);    // ref para evitar recrear el watcher al cambiar props
+  const procesandoRef   = useRef(new Set()); // IDs en proceso de notificación (evita race conditions)
 
-  // Mantener refs sincronizados
   useEffect(() => { restaurantesRef.current = restaurantes; }, [restaurantes]);
-  useEffect(() => { suscripcionRef.current  = suscripcion;  }, [suscripcion]);
 
-  // ── 1. Registrar Service Worker y obtener la PushSubscription del navegador ──
-  //    (esto es global al dispositivo, NO pertenece a ningún restaurante todavía)
-  const obtenerSuscripcionNavegador = useCallback(async () => {
+  // ── Registrar suscripción WebPush en Supabase ──────────────────────────────
+  const guardarSuscripcion = useCallback(async (sub) => {
+    try {
+      // Usar supabase.functions.invoke en lugar de fetch directo
+      // → maneja automáticamente la URL base correcta en producción (Cloudflare Pages)
+      const { error } = await supabase.functions.invoke('save-push-subscription', {
+        body: { subscription: sub.toJSON() },
+      });
+      if (error) console.warn('[Geofencing] No se guardó la suscripción:', error.message);
+      else       console.log('[Geofencing] Suscripción guardada en Supabase ✅');
+    } catch (err) {
+      // No crítico: el push puede funcionar con suscripción inline aunque no esté guardada
+      console.warn('[Geofencing] Error guardando suscripción:', err.message);
+    }
+  }, []);
+
+  // ── Inicializar Service Worker y obtener PushSubscription ─────────────────
+  const inicializarPush = useCallback(async () => {
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-      console.warn('[Geofencing] Push no soportado en este navegador.');
+      console.warn('[Geofencing] Push no soportado en este navegador');
       return null;
     }
 
-    const registration = await navigator.serviceWorker.ready;
-
-    // Reutilizar suscripción existente si ya hay una
-    let sub = await registration.pushManager.getSubscription();
-    if (!sub) {
-      if (!VAPID_PUBLIC_KEY) {
-        console.error('[Geofencing] Falta VITE_VAPID_PUBLIC_KEY en .env');
-        return null;
-      }
-      sub = await registration.pushManager.subscribe({
-        userVisibleOnly:      true,
-        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
-      });
+    if (!VAPID_PUBLIC_KEY) {
+      console.error('[Geofencing] Falta VITE_VAPID_PUBLIC_KEY en .env');
+      return null;
     }
 
-    return sub;
-  }, []);
-
-  // ── 1b. Persistir la suscripción para UN restaurante específico ─────────────
-  //    Se llama cada vez que el usuario entra en rango de un restaurante nuevo,
-  //    así push_subscriptions queda correctamente segmentada (endpoint, restaurante_id).
-  const persistirSuscripcion = useCallback(async (sub, restauranteId) => {
-    if (!sub || !restauranteId) return;
     try {
-      await fetch(`${EDGE_FN_URL}/save-push-subscription`, {
-        method:  'POST',
-        headers: {
-          'Content-Type':  'application/json',
-          'apikey':        import.meta.env.VITE_SUPABASE_ANON_KEY,
-          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
-        },
-        body: JSON.stringify({ subscription: sub.toJSON(), restauranteId }),
-      });
-    } catch (err) {
-      // No es crítico — check-geofence aún puede recibir la sub inline como fallback
-      console.warn('[Geofencing] No se pudo persistir la suscripción:', err.message);
-    }
-  }, []);
+      const registration = await navigator.serviceWorker.ready;
 
-  // ── 2. Procesar posición GPS: calcular distancias y disparar push ────────────
+      // Reutilizar suscripción existente para no generar nuevas innecesariamente
+      let sub = await registration.pushManager.getSubscription();
+
+      if (!sub) {
+        sub = await registration.pushManager.subscribe({
+          userVisibleOnly:      true,
+          applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+        });
+        // Solo guardar cuando es nueva (evita escrituras repetidas)
+        await guardarSuscripcion(sub);
+      }
+
+      return sub;
+    } catch (err) {
+      console.error('[Geofencing] Error al suscribirse a push:', err.message);
+      return null;
+    }
+  }, [guardarSuscripcion]);
+
+  // ── Procesar posición GPS ─────────────────────────────────────────────────
   const procesarPosicion = useCallback(async (pos) => {
     const { latitude: uLat, longitude: uLon } = pos.coords;
     const restos = restaurantesRef.current;
     const sub    = suscripcionRef.current;
 
-    const enRango = [];
+    const enRangoAhora = [];
 
     for (const resto of restos) {
-      const rLat   = parseFloat(resto.latitud);
-      const rLon   = parseFloat(resto.longitud);
-      const radio  = parseInt(resto.radio_aviso) || 200;
+      const rId   = resto.restaurante_id || resto.id;
+      const rLat  = parseFloat(resto.latitud);
+      const rLon  = parseFloat(resto.longitud);
+      const radio = parseInt(resto.radio_aviso) || 200;
 
-      if (isNaN(rLat) || isNaN(rLon)) continue; // restaurante sin coordenadas
+      if (isNaN(rLat) || isNaN(rLon)) continue;
 
-      const distM = haversineMetros(uLat, uLon, rLat, rLon);
+      const distM      = haversineM(uLat, uLon, rLat, rLon);
       const dentroAhora = distM <= radio;
 
-      if (dentroAhora) enRango.push(resto.restaurante_id || resto.id);
+      if (dentroAhora) enRangoAhora.push(rId);
 
-      if (dentroAhora && cooldownExpirado(resto.restaurante_id || resto.id)) {
-        const restauranteId = resto.restaurante_id || resto.id;
+      // Disparar notificación solo si: está en rango + cooldown expirado + no hay otro en proceso
+      if (dentroAhora && cooldown.ok(rId) && !procesandoRef.current.has(rId)) {
+        procesandoRef.current.add(rId);
+        cooldown.set(rId); // marcar ANTES del fetch para evitar doble disparo
 
-        // Marcar cooldown ANTES del fetch para evitar doble disparo en caso de
-        // respuesta lenta + nueva posición GPS casi simultánea
-        setCooldownTs(restauranteId);
-
-        // Asegurar que este dispositivo quede suscrito a ESTE restaurante
-        // (no bloquea el flujo si falla; check-geofence recibe la sub inline como fallback)
-        await persistirSuscripcion(sub, restauranteId);
-
-        // Llamar a la Edge Function para validar server-side y enviar el push
         try {
-          await fetch(`${EDGE_FN_URL}/check-geofence`, {
-            method:  'POST',
-            headers: {
-              'Content-Type':  'application/json',
-              'apikey':        import.meta.env.VITE_SUPABASE_ANON_KEY,
-              'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
-            },
-            body: JSON.stringify({
-              restauranteId,
+          /**
+           * supabase.functions.invoke() en producción (Cloudflare Pages):
+           *  - Usa automáticamente VITE_SUPABASE_URL del .env
+           *  - Agrega el header Authorization con el anon key
+           *  - No necesita URL absoluta → funciona igual en local y producción
+           */
+          const { data, error } = await supabase.functions.invoke('send-proximity-notification', {
+            body: {
+              restauranteId:   rId,
               latitudUsuario:  uLat,
               longitudUsuario: uLon,
-              subscription:    sub?.toJSON() ?? null,
-            }),
+              // Enviar la suscripción inline como fallback si la tabla push_subscriptions
+              // no tiene la del dispositivo actual (ej: primer uso)
+              subscription: sub ? sub.toJSON() : null,
+            },
           });
+
+          if (error) {
+            console.error(`[Geofencing] Error en send-proximity-notification (${rId}):`, error.message);
+            // Revertir cooldown para reintentar en el próximo ciclo GPS
+            cooldown.clear(rId);
+          } else {
+            console.log(`[Geofencing] Push enviado a ${resto.nombre}:`, data);
+          }
         } catch (err) {
-          // Revertir cooldown si el fetch falla para que reintente en el próximo ciclo
-          localStorage.removeItem(`${COOLDOWN_KEY_PREFIX}${restauranteId}`);
-          console.error('[Geofencing] Error al llamar check-geofence:', err.message);
+          console.error('[Geofencing] Error de red:', err.message);
+          cooldown.clear(rId); // revertir para reintentar
+        } finally {
+          procesandoRef.current.delete(rId);
         }
       }
     }
 
-    setDentroDeRango(enRango);
-  }, [persistirSuscripcion]);
+    setDentroDeRango(enRangoAhora);
+  }, []);
 
-  // ── 3. Iniciar rastreo ───────────────────────────────────────────────────────
+  // ── Solicitar permisos e iniciar watchPosition ────────────────────────────
   const iniciarRastreo = useCallback(async () => {
     if (!('geolocation' in navigator)) {
-      setEstado('error');
+      setEstado('no_soportado');
       return;
     }
 
     setEstado('solicitando_permiso');
 
-    // Solicitar permiso de notificaciones
-    let notifPermiso = Notification.permission;
-    if (notifPermiso === 'default') {
-      notifPermiso = await Notification.requestPermission();
+    // Solicitar permiso de notificaciones primero (no bloquea el GPS si se rechaza)
+    if (Notification.permission === 'default') {
+      const permiso = await Notification.requestPermission();
+      if (permiso === 'granted') {
+        const sub = await inicializarPush();
+        suscripcionRef.current = sub;
+      } else {
+        console.warn('[Geofencing] Notificaciones denegadas — el rastreo GPS continúa');
+      }
+    } else if (Notification.permission === 'granted') {
+      if (!suscripcionRef.current) {
+        const sub = await inicializarPush();
+        suscripcionRef.current = sub;
+      }
     }
 
-    if (notifPermiso === 'granted') {
-      const sub = await obtenerSuscripcionNavegador();
-      setSuscripcion(sub);
-    }
-    // Si el usuario rechaza las notificaciones, el rastreo GPS igual funciona
-    // (solo fallará el push remoto, pero puede mostrar un banner local)
-
+    // Iniciar watchPosition
     watchIdRef.current = navigator.geolocation.watchPosition(
       procesarPosicion,
       (err) => {
         console.warn('[Geofencing] Error GPS:', err.message);
-        if (err.code === 1) setEstado('sin_permiso'); // permiso denegado
+        if (err.code === 1) setEstado('sin_permiso'); // PERMISSION_DENIED
+        // Otros errores (POSITION_UNAVAILABLE, TIMEOUT) son transitorios → no cambiar estado
       },
       {
         enableHighAccuracy: true,
@@ -221,30 +233,33 @@ export function useGeofencing(restaurantes = []) {
     );
 
     setEstado('rastreando');
-  }, [obtenerSuscripcionNavegador, procesarPosicion]);
+    console.log('[Geofencing] Rastreo iniciado ✅');
+  }, [inicializarPush, procesarPosicion]);
 
-  // ── 4. Detener rastreo ───────────────────────────────────────────────────────
+  // ── Detener rastreo ───────────────────────────────────────────────────────
   const detenerRastreo = useCallback(() => {
     if (watchIdRef.current !== null) {
       navigator.geolocation.clearWatch(watchIdRef.current);
       watchIdRef.current = null;
     }
+    procesandoRef.current.clear();
     setEstado('idle');
     setDentroDeRango([]);
+    console.log('[Geofencing] Rastreo detenido');
   }, []);
 
-  // ── Lifecycle: iniciar cuando hay restaurantes, limpiar al desmontar ─────────
+  // ── Ciclo de vida: iniciar cuando llegan restaurantes, limpiar al desmontar
   useEffect(() => {
     if (restaurantes.length === 0) return;
     iniciarRastreo();
     return () => detenerRastreo();
-  }, [restaurantes.length]); // solo re-iniciar si cambia el número de restaurantes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [restaurantes.length]); // solo re-iniciar si cambia el número (no en cada render)
 
   return {
-    estado,           // 'idle' | 'solicitando_permiso' | 'rastreando' | 'sin_permiso' | 'error'
-    dentroDeRango,    // string[] de restaurante IDs actualmente en rango
-    suscripcion,      // PushSubscription | null
-    iniciarRastreo,
-    detenerRastreo,
+    estado,            // string — estado actual del rastreo
+    dentroDeRango,     // string[] — IDs de restaurantes donde el usuario está ahora
+    iniciarRastreo,    // fn — llamar manualmente si necesitas reiniciar
+    detenerRastreo,    // fn — llamar para pausar (ej: cuando el usuario se va de la app)
   };
 }
