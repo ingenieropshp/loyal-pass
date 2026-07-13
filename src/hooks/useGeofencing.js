@@ -1,42 +1,19 @@
 /**
- * useGeofencing.js — Bistro Connect v3.0
+ * useGeofencing.js — Bistro Connect v4.0
  *
- * FLUJO PRINCIPAL:
- *  - App ABIERTA:  showNotification() directo desde el SW (inmediato, sin Edge Function)
- *  - App CERRADA:  Edge Function check-geofence → web-push → SW
- *
- * Cuando el usuario entra al rango de un restaurante muestra:
- *  "📍 Estás cerca de [Nombre]"
- *  "Confirma tu llegada y gana +N puntos"
+ * CAMBIOS CLAVE vs v3:
+ *  1. Sin cooldown de 2h → detección de BORDE (fuera→dentro) en el SW
+ *  2. Envía restaurantes al SW (CACHE_RESTAURANTS) para chequeo en background
+ *  3. Envía posición GPS al SW (LOCATION_UPDATE) en cada actualización
+ *  4. Escucha REQUEST_LOCATION del SW (Periodic Background Sync)
+ *  5. Registra Periodic Background Sync si la PWA está instalada
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 
-const COOLDOWN_MS        = 2 * 60 * 60 * 1000; // 2 horas entre notifs del mismo restaurante
-const LS_PREFIX          = 'bistro_geo_cd_';
-const VAPID_PUBLIC_KEY   = import.meta.env.VITE_VAPID_PUBLIC_KEY;
-const SUPABASE_URL        = import.meta.env.VITE_SUPABASE_URL;
-const SUPABASE_ANON_KEY   = import.meta.env.VITE_SUPABASE_ANON_KEY;
-
-// ── Haversine ─────────────────────────────────────────────────────────────────
-function distanciaM(lat1, lon1, lat2, lon2) {
-  const R    = 6_371_000;
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLon = ((lon2 - lon1) * Math.PI) / 180;
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos((lat1 * Math.PI) / 180) *
-    Math.cos((lat2 * Math.PI) / 180) *
-    Math.sin(dLon / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-
-// ── Cooldown ──────────────────────────────────────────────────────────────────
-const cooldown = {
-  ok:    (id) => Date.now() - parseInt(localStorage.getItem(`${LS_PREFIX}${id}`) || '0', 10) > COOLDOWN_MS,
-  set:   (id) => localStorage.setItem(`${LS_PREFIX}${id}`, Date.now().toString()),
-  clear: (id) => localStorage.removeItem(`${LS_PREFIX}${id}`),
-};
+const VAPID_PUBLIC_KEY  = import.meta.env.VITE_VAPID_PUBLIC_KEY;
+const SUPABASE_URL      = import.meta.env.VITE_SUPABASE_URL;
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 // ── VAPID helper ──────────────────────────────────────────────────────────────
 function urlBase64ToUint8Array(b64) {
@@ -51,162 +28,122 @@ export function useGeofencing(restaurantes = []) {
   const [dentroDeRango, setDentroDeRango] = useState([]);
 
   const watchIdRef      = useRef(null);
-  const swRegRef        = useRef(null);   // ServiceWorkerRegistration
-  const suscripcionRef  = useRef(null);   // PushSubscription
+  const swRegRef        = useRef(null);
   const restaurantesRef = useRef([]);
-  const procesandoRef   = useRef(new Set());
 
   useEffect(() => { restaurantesRef.current = restaurantes; }, [restaurantes]);
 
-  // ── Inicializar SW y suscripción push ─────────────────────────────────────
-  const inicializarPush = useCallback(async () => {
-    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+  // ── Enviar datos al SW ────────────────────────────────────────────────────
+  const enviarAlSW = useCallback((type, payload) => {
+    if (!swRegRef.current?.active) return;
+    swRegRef.current.active.postMessage({ type, payload });
+  }, []);
+
+  // ── Inicializar SW + Push + Periodic Sync ────────────────────────────────
+  const inicializarSW = useCallback(async (listaRestaurantes) => {
+    if (!('serviceWorker' in navigator)) return;
 
     try {
       const reg = await navigator.serviceWorker.ready;
       swRegRef.current = reg;
 
-      if (!VAPID_PUBLIC_KEY) {
-        console.error('[Geofencing] Falta VITE_VAPID_PUBLIC_KEY en .env');
-        return;
+      // 1. Enviar restaurantes al SW para que los use en background
+      const urlBase = `${window.location.origin}/?r=`;
+      const restosSW = listaRestaurantes.map(r => ({
+        ...r,
+        urlApp: `${urlBase}${r.restaurante_id}`,
+      }));
+      reg.active?.postMessage({ type: 'CACHE_RESTAURANTS', payload: { restaurantes: restosSW } });
+
+      // 2. Suscripción push (para notifs cuando la app está cerrada via Edge Function)
+      if (Notification.permission === 'granted' && VAPID_PUBLIC_KEY) {
+        let sub = await reg.pushManager.getSubscription();
+        if (!sub) {
+          sub = await reg.pushManager.subscribe({
+            userVisibleOnly:      true,
+            applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+          });
+        }
+        // Guardar suscripción en Supabase
+        fetch(`${SUPABASE_URL}/functions/v1/save-push-subscription`, {
+          method:  'POST',
+          headers: {
+            'Content-Type':  'application/json',
+            'apikey':        SUPABASE_ANON_KEY,
+            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+          },
+          body: JSON.stringify({ subscription: sub.toJSON() }),
+        }).catch(() => {});
       }
 
-      let sub = await reg.pushManager.getSubscription();
-      if (!sub) {
-        sub = await reg.pushManager.subscribe({
-          userVisibleOnly:      true,
-          applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
-        });
-        console.log('[Geofencing] Nueva suscripción push creada ✅');
+      // 3. Periodic Background Sync (Chrome Android con PWA instalada)
+      if ('periodicSync' in reg) {
+        try {
+          const perm = await navigator.permissions.query({ name: 'periodic-background-sync' });
+          if (perm.state === 'granted') {
+            await reg.periodicSync.register('geofence-check', { minInterval: 15 * 60 * 1000 });
+            console.log('[Geofencing] Periodic Background Sync registrado ✅');
+          }
+        } catch {
+          // No soportado en este navegador — no es crítico
+        }
       }
-      suscripcionRef.current = sub;
-
-      // Guardar suscripción en Supabase (para pushes cuando la app está cerrada)
-      fetch(`${SUPABASE_URL}/functions/v1/save-push-subscription`, {
-        method:  'POST',
-        headers: {
-          'Content-Type':  'application/json',
-          'apikey':        SUPABASE_ANON_KEY,
-          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-        },
-        body: JSON.stringify({ subscription: sub.toJSON() }),
-      }).catch(err => console.warn('[Geofencing] No se guardó suscripción:', err.message));
 
     } catch (err) {
-      console.warn('[Geofencing] Error inicializando push:', err.message);
+      console.warn('[Geofencing] Error inicializando SW:', err.message);
     }
-  }, []);
+  }, [enviarAlSW]);
 
-  // ── Mostrar notificación LOCAL (app abierta) ──────────────────────────────
-  // Este método es 100% confiable: no depende de Edge Functions ni internet
-  const mostrarNotificacionLocal = useCallback(async (resto) => {
-    const reg = swRegRef.current;
-    if (!reg) return false;
+  // ── Escuchar REQUEST_LOCATION del SW (Periodic Sync despertó la app) ──────
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return;
 
-    try {
-      const puntosLlegada = resto.puntos_llegada ?? 2;
-      const urlApp        = `${window.location.origin}/?r=${resto.restaurante_id}`;
-
-      await reg.showNotification(`📍 Estás cerca de ${resto.nombre}`, {
-        body: resto.mensaje_geofence?.trim()
-              || resto.mensaje_promo?.trim()
-              || `Confirma tu llegada y gana +${puntosLlegada} puntos`,
-        icon:     '/icons/icon-192.png',
-        badge:    '/icons/badge-72.png',
-        tag:      `bistro-cerca-${resto.restaurante_id}`,
-        renotify: false,
-        vibrate:  [200, 100, 200],
-        data: {
-          url:           urlApp,
-          restauranteId: resto.restaurante_id,
-        },
-        actions: [
-          { action: 'ver-menu', title: `Confirmar llegada (+${puntosLlegada} pts) ✅` },
-          { action: 'dismiss',  title: 'Ahora no' },
-        ],
-      });
-
-      console.log(`[Geofencing] ✅ Notificación local mostrada: ${resto.nombre}`);
-      return true;
-    } catch (err) {
-      console.error('[Geofencing] Error mostrando notificación local:', err.message);
-      return false;
-    }
-  }, []);
-
-  // ── Llamar Edge Function (app cerrada / backup) ───────────────────────────
-  const llamarEdgeFunction = useCallback(async (resto, uLat, uLon) => {
-    try {
-      const res = await fetch(`${SUPABASE_URL}/functions/v1/check-geofence`, {
-        method:  'POST',
-        headers: {
-          'Content-Type':  'application/json',
-          'apikey':        SUPABASE_ANON_KEY,
-          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-        },
-        body: JSON.stringify({
-          restauranteId:   resto.restaurante_id,
-          latitudUsuario:  uLat,
-          longitudUsuario: uLon,
-          subscription:    suscripcionRef.current?.toJSON() ?? null,
-        }),
-      });
-
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        console.warn(`[Geofencing] Edge Function respondió ${res.status}:`, data?.error);
+    const handleSWMessage = (event) => {
+      if (event.data?.type === 'REQUEST_LOCATION') {
+        // El SW nos pide nuestra posición actual → la obtenemos y se la enviamos
+        navigator.geolocation?.getCurrentPosition((pos) => {
+          enviarAlSW('LOCATION_UPDATE', {
+            lat: pos.coords.latitude,
+            lon: pos.coords.longitude,
+          });
+        }, () => {}, { maximumAge: 60_000 });
       }
-    } catch (err) {
-      console.warn('[Geofencing] Edge Function no disponible:', err.message);
-      // No es crítico — la notificación local ya se mostró
-    }
-  }, []);
+    };
+
+    navigator.serviceWorker.addEventListener('message', handleSWMessage);
+    return () => navigator.serviceWorker.removeEventListener('message', handleSWMessage);
+  }, [enviarAlSW]);
 
   // ── Procesar posición GPS ─────────────────────────────────────────────────
-  const procesarPosicion = useCallback(async (pos) => {
+  const procesarPosicion = useCallback((pos) => {
     const { latitude: uLat, longitude: uLon } = pos.coords;
-    const restos = restaurantesRef.current;
-    const enRango = [];
 
-    for (const resto of restos) {
-      const rLat  = parseFloat(resto.latitud);
-      const rLon  = parseFloat(resto.longitud);
-      const radio = parseInt(resto.radio_aviso) || 200;
-      const rId   = resto.restaurante_id;
+    // Enviar posición al SW → él hace el chequeo de geofence y muestra la notif
+    // Esto funciona incluso con la app en background porque el SW sigue vivo
+    enviarAlSW('LOCATION_UPDATE', { lat: uLat, lon: uLon });
 
-      if (isNaN(rLat) || isNaN(rLon) || !rId) continue;
-
-      const distM       = distanciaM(uLat, uLon, rLat, rLon);
-      const dentroAhora = distM <= radio;
-
-      if (dentroAhora) enRango.push(rId);
-
-      // Disparar solo si: en rango + cooldown expirado + no hay otro proceso en curso
-      if (dentroAhora && cooldown.ok(rId) && !procesandoRef.current.has(rId)) {
-        procesandoRef.current.add(rId);
-        cooldown.set(rId); // marcar ANTES para evitar doble disparo
-
-        console.log(`[Geofencing] Usuario a ${Math.round(distM)}m de ${resto.nombre} (radio: ${radio}m)`);
-
-        // PASO 1: Notificación local inmediata (no depende de servidor)
-        await mostrarNotificacionLocal(resto);
-
-        // PASO 2: Edge Function en paralelo (para registrar métrica + push cuando app cerrada)
-        llamarEdgeFunction(resto, uLat, uLon).catch(() => {});
-
-        procesandoRef.current.delete(rId);
-      }
-    }
+    // También actualizar estado de React para el UI (badge "Estás aquí")
+    const enRango = restaurantesRef.current
+      .filter(r => {
+        const rLat = parseFloat(r.latitud);
+        const rLon = parseFloat(r.longitud);
+        const radio = parseInt(r.radio_aviso) || 200;
+        if (isNaN(rLat) || isNaN(rLon)) return false;
+        const R = 6_371_000;
+        const dLat = ((r.latitud - uLat) * Math.PI) / 180;
+        const dLon = ((r.longitud - uLon) * Math.PI) / 180;
+        const a = Math.sin(dLat/2)**2 + Math.cos(uLat*Math.PI/180)*Math.cos(rLat*Math.PI/180)*Math.sin(dLon/2)**2;
+        const dist = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        return dist <= radio;
+      })
+      .map(r => r.restaurante_id);
 
     setDentroDeRango(enRango);
-  }, [mostrarNotificacionLocal, llamarEdgeFunction]);
+  }, [enviarAlSW]);
 
   // ── Iniciar rastreo ───────────────────────────────────────────────────────
-  const iniciarRastreo = useCallback(async () => {
-    if (!('geolocation' in navigator)) {
-      setEstado('no_soportado');
-      return;
-    }
+  const iniciarRastreo = useCallback(async (listaRestaurantes) => {
+    if (!('geolocation' in navigator)) { setEstado('no_soportado'); return; }
 
     setEstado('solicitando_permiso');
 
@@ -215,17 +152,10 @@ export function useGeofencing(restaurantes = []) {
       await Notification.requestPermission();
     }
 
-    // Inicializar push si hay permiso
-    if (Notification.permission === 'granted') {
-      await inicializarPush();
-    } else {
-      // Sin permiso de notificaciones, al menos guardar la reg del SW para el local
-      if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.ready.then(reg => { swRegRef.current = reg; });
-      }
-    }
+    // Inicializar SW con la lista de restaurantes
+    await inicializarSW(listaRestaurantes);
 
-    // Iniciar watchPosition
+    // Iniciar GPS continuo
     watchIdRef.current = navigator.geolocation.watchPosition(
       procesarPosicion,
       (err) => {
@@ -235,13 +165,13 @@ export function useGeofencing(restaurantes = []) {
       {
         enableHighAccuracy: true,
         timeout:            15_000,
-        maximumAge:         30_000,
+        maximumAge:         15_000, // 15s → más actualizaciones para background
       }
     );
 
     setEstado('rastreando');
     console.log('[Geofencing] Rastreo GPS iniciado ✅');
-  }, [inicializarPush, procesarPosicion]);
+  }, [inicializarSW, procesarPosicion]);
 
   // ── Detener rastreo ───────────────────────────────────────────────────────
   const detenerRastreo = useCallback(() => {
@@ -249,18 +179,35 @@ export function useGeofencing(restaurantes = []) {
       navigator.geolocation.clearWatch(watchIdRef.current);
       watchIdRef.current = null;
     }
-    procesandoRef.current.clear();
     setEstado('idle');
     setDentroDeRango([]);
   }, []);
 
-  // ── Lifecycle ─────────────────────────────────────────────────────────────
+  // ── Lifecycle: iniciar cuando llegan restaurantes ─────────────────────────
   useEffect(() => {
     if (restaurantes.length === 0) return;
-    iniciarRastreo();
+
+    iniciarRastreo(restaurantes);
+
+    // Re-enviar restaurantes al SW cuando cambien (ej: admin actualizó coordenadas)
+    const urlBase = `${window.location.origin}/?r=`;
+    const restosSW = restaurantes.map(r => ({ ...r, urlApp: `${urlBase}${r.restaurante_id}` }));
+    enviarAlSW('CACHE_RESTAURANTS', { restaurantes: restosSW });
+
     return () => detenerRastreo();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [restaurantes.length]);
+
+  // Re-enviar restaurantes al SW cuando el SW se activa (recarga de página)
+  useEffect(() => {
+    if (!('serviceWorker' in navigator) || restaurantes.length === 0) return;
+    navigator.serviceWorker.ready.then(reg => {
+      swRegRef.current = reg;
+      const urlBase = `${window.location.origin}/?r=`;
+      const restosSW = restaurantes.map(r => ({ ...r, urlApp: `${urlBase}${r.restaurante_id}` }));
+      reg.active?.postMessage({ type: 'CACHE_RESTAURANTS', payload: { restaurantes: restosSW } });
+    });
+  }, [restaurantes]);
 
   return { estado, dentroDeRango, iniciarRastreo, detenerRastreo };
 }
