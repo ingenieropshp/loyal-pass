@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../services/supabaseClient';
+import { SelectorNotificaciones } from './SelectorNotificaciones';
 
 const calcularNivel = (ciclos = 0) => {
   if (ciclos >= 10) return { label: 'Oro',    emoji: '🥇' };
@@ -81,6 +82,10 @@ export const BuscadorRestaurantes = () => {
       {misRestaurantes.length > 0 && (
         <section style={styles.section}>
           <p style={styles.sectionTitle}>Mis restaurantes</p>
+
+          {/* Selector de notificaciones por restaurante */}
+          <SelectorNotificaciones restaurantes={misRestaurantes} />
+
           <div style={styles.list}>
             {misRestaurantes.map(r => {
               const datos = datosPorSede[r.id];

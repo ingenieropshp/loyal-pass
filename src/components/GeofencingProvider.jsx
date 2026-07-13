@@ -7,8 +7,9 @@
  */
 
 import { createContext, useContext, useEffect, useState } from 'react';
-import { supabase }       from '../services/supabaseClient';
-import { useGeofencing }  from '../hooks/useGeofencing';
+import { supabase }                    from '../services/supabaseClient';
+import { useGeofencing }               from '../hooks/useGeofencing';
+import { getNotifPrefs }               from './SelectorNotificaciones';
 
 const GeofencingContext = createContext({
   estado:        'idle',
@@ -20,7 +21,22 @@ const GeofencingContext = createContext({
 export const useGeofencingContext = () => useContext(GeofencingContext);
 
 export function GeofencingProvider({ children }) {
-  const [restaurantes, setRestaurantes] = useState([]);
+  const [restaurantes,   setRestaurantes]   = useState([]);
+  const [prefsClave,     setPrefsClave]     = useState(0); // fuerza re-render al cambiar prefs
+
+  // Escuchar cambios en las preferencias (cuando el usuario activa/desactiva desde SelectorNotificaciones)
+  useEffect(() => {
+    const onStorage = (e) => {
+      if (e.key === 'bistro_notif_prefs') setPrefsClave(k => k + 1);
+    };
+    window.addEventListener('storage', onStorage);
+    // También escuchar cambios en la misma pestaña con un evento custom
+    window.addEventListener('bistro_notif_changed', () => setPrefsClave(k => k + 1));
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      window.removeEventListener('bistro_notif_changed', () => {});
+    };
+  }, []);
 
   useEffect(() => {
     const cargar = async () => {
@@ -90,11 +106,17 @@ export function GeofencingProvider({ children }) {
     return () => { supabase.removeChannel(channel); };
   }, []);
 
-  // useGeofencing solo se activa si hay restaurantes con coordenadas
-  const { estado, dentroDeRango, suscripcion } = useGeofencing(restaurantes);
+  // Filtrar según preferencias del usuario (solo restaurantes con notifs activas)
+  const prefs = getNotifPrefs();
+  const restaurantesFiltrados = restaurantes.filter(r =>
+    prefs[r.restaurante_id] !== false  // activo por defecto si no hay preferencia
+  );
+
+  // useGeofencing solo se activa con los restaurantes que el usuario eligió
+  const { estado, dentroDeRango } = useGeofencing(restaurantesFiltrados);
 
   return (
-    <GeofencingContext.Provider value={{ estado, dentroDeRango, restaurantes, suscripcion }}>
+    <GeofencingContext.Provider value={{ estado, dentroDeRango, restaurantes: restaurantesFiltrados }}>
       {children}
     </GeofencingContext.Provider>
   );
