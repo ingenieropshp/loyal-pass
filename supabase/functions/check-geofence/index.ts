@@ -1,6 +1,9 @@
 /**
- * check-geofence/index.ts — Supabase Edge Function v2.1
- * Fix: validación de env vars al inicio, errores descriptivos
+ * check-geofence/index.ts — v3.0
+ * Fixes:
+ *  - metricas_proximidad: columnas correctas (distancia_metros, exito)
+ *  - SUPABASE_SECRET_KEYS: compatible con nuevo y legacy formato
+ *  - mensaje_geofence: leído de conexion para el payload del push
  */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -10,6 +13,24 @@ const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
+
+const json = (data: unknown, status = 200) =>
+  new Response(JSON.stringify(data), {
+    status, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  });
+
+// ── Compatible con legacy SUPABASE_SERVICE_ROLE_KEY y nuevo SUPABASE_SECRET_KEYS
+function getServiceRoleKey(): string {
+  const secretKeys = Deno.env.get('SUPABASE_SECRET_KEYS');
+  if (secretKeys) {
+    try {
+      const parsed = JSON.parse(secretKeys);
+      const key = parsed?.service_role ?? Object.values(parsed)[0];
+      if (key) return String(key);
+    } catch { /* fallback */ }
+  }
+  return Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+}
 
 function haversineMetros(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 6_371_000;
@@ -25,69 +46,49 @@ function haversineMetros(lat1: number, lon1: number, lat2: number, lon2: number)
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
-  if (req.method !== 'POST') {
-    return new Response(JSON.stringify({ error: 'Método no permitido' }), {
-      status: 405, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
-  }
+  if (req.method !== 'POST') return json({ error: 'Método no permitido' }, 405);
 
   try {
-    // ── Validar variables de entorno ANTES de procesar ──────────────────────
-    const supabaseUrl     = Deno.env.get('SUPABASE_URL');
-    const serviceRoleKey  = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+    const supabaseUrl    = Deno.env.get('SUPABASE_URL');
+    const serviceRoleKey = getServiceRoleKey();
     const vapidPublicKey  = Deno.env.get('VAPID_PUBLIC_KEY');
     const vapidPrivateKey = Deno.env.get('VAPID_PRIVATE_KEY');
-    const vapidSubject    = Deno.env.get('VAPID_SUBJECT') ?? 'mailto:admin@bistroconnect.com';
-    const appUrl          = Deno.env.get('APP_URL') ?? 'https://bistro-app.pages.dev';
+    const vapidSubject   = Deno.env.get('VAPID_SUBJECT') ?? 'mailto:admin@bistroconnect.com';
+    const appUrl         = Deno.env.get('APP_URL') ?? 'https://bistro-app.pages.dev';
 
     if (!supabaseUrl || !serviceRoleKey) {
-      console.error('[check-geofence] Faltan SUPABASE_URL o SUPABASE_SERVICE_ROLE_KEY');
-      return new Response(JSON.stringify({ error: 'Configuración de servidor incompleta' }), {
-        status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      console.error('[check-geofence] Falta SUPABASE_URL o service role key');
+      return json({ error: 'Configuración de servidor incompleta' }, 500);
     }
-
     if (!vapidPublicKey || !vapidPrivateKey) {
-      console.error('[check-geofence] Faltan VAPID_PUBLIC_KEY o VAPID_PRIVATE_KEY en Secrets');
-      return new Response(JSON.stringify({ error: 'Faltan claves VAPID en Edge Function Secrets' }), {
-        status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      console.error('[check-geofence] Faltan claves VAPID');
+      return json({ error: 'Faltan claves VAPID en Edge Function Secrets' }, 500);
     }
 
-    // ── Parsear body ─────────────────────────────────────────────────────────
     const body = await req.json();
     const { restauranteId, latitudUsuario, longitudUsuario, subscription } = body;
 
     if (!restauranteId || latitudUsuario == null || longitudUsuario == null) {
-      return new Response(JSON.stringify({ error: 'Faltan parámetros: restauranteId, latitudUsuario, longitudUsuario' }), {
-        status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return json({ error: 'Faltan parámetros: restauranteId, latitudUsuario, longitudUsuario' }, 400);
     }
 
     const uLat = parseFloat(latitudUsuario);
     const uLon = parseFloat(longitudUsuario);
-    if (isNaN(uLat) || isNaN(uLon)) {
-      return new Response(JSON.stringify({ error: 'Coordenadas inválidas' }), {
-        status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
+    if (isNaN(uLat) || isNaN(uLon)) return json({ error: 'Coordenadas inválidas' }, 400);
 
-    // ── Cliente Supabase con service role ─────────────────────────────────────
     const supabase = createClient(supabaseUrl, serviceRoleKey, {
       auth: { persistSession: false },
     });
 
-    // ── Cargar datos del restaurante ─────────────────────────────────────────
+    // ── Cargar datos del restaurante (incluir mensaje_geofence) ──────────────
     const { data: conexion, error: errConexion } = await supabase
       .from('conexion')
-      .select('latitud, longitud, radio_aviso, puntos_llegada, mensaje_promo')
+      .select('latitud, longitud, radio_aviso, puntos_llegada, mensaje_promo, mensaje_geofence')
       .eq('restaurante_id', restauranteId)
       .maybeSingle();
 
     if (errConexion || !conexion) {
-      return new Response(JSON.stringify({ error: 'Restaurante no encontrado en conexion' }), {
-        status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return json({ error: 'Restaurante no encontrado en conexion' }, 404);
     }
 
     const { data: config } = await supabase
@@ -96,76 +97,64 @@ Deno.serve(async (req: Request) => {
       .eq('id', restauranteId)
       .maybeSingle();
 
-    if (!config?.activo) {
-      return new Response(JSON.stringify({ error: 'Restaurante inactivo' }), {
-        status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
+    if (!config?.activo) return json({ error: 'Restaurante inactivo' }, 403);
 
-    // ── Validación server-side de distancia ──────────────────────────────────
     const rLat  = parseFloat(conexion.latitud);
     const rLon  = parseFloat(conexion.longitud);
     const radio = parseInt(conexion.radio_aviso) || 200;
     const distM = haversineMetros(uLat, uLon, rLat, rLon);
 
-    if (distM > radio) {
-      return new Response(JSON.stringify({
-        ok: false, mensaje: 'Fuera de rango', distanciaMetros: Math.round(distM),
-      }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-    }
-
-    // ── Registrar métrica ────────────────────────────────────────────────────
-    try {
-      const { error: errorMetrica } = await supabase.from('metricas_proximidad').insert([{
-        restaurante_id:    restauranteId,
-        restaurante:       config.nombre,
-        distancia:         Math.round(distM),
-        dentro_del_rango_800: distM <= 800,
-        es_exito_total:    true,
-        origen:            'geofence_push',
-      }]);
-      if (errorMetrica) console.warn('Error métrica:', errorMetrica.message);
-    } catch (err: any) {
-      console.warn('Error métrica:', err?.message ?? err);
-    }
-
-    // ── Construir payload del push ────────────────────────────────────────────
-    const puntosLlegada = conexion.puntos_llegada ?? 2;
-    const pushPayload = JSON.stringify({
-      restauranteId,
-      restauranteNombre: config.nombre,
-      titulo:   `¡Estás cerca de ${config.nombre}! 📍`,
-      cuerpo:   `${conexion.mensaje_promo || 'Confirma tu llegada'} y gana +${puntosLlegada} puntos.`,
-      urlMenu:  `${appUrl}/?r=${restauranteId}`,
-      icono:    '/icons/icon-192.png',
-      puntosLlegada,
+    // ── FIX Bug 1: columnas correctas de metricas_proximidad ─────────────────
+    // La tabla tiene: distancia_metros (no distancia), exito (no es_exito_total)
+    // No tiene: restaurante, dentro_del_rango_800
+    supabase.from('metricas_proximidad').insert([{
+      restaurante_id:   restauranteId,
+      distancia_metros: Math.round(distM),        // ← columna correcta
+      exito:            distM <= radio,            // ← columna correcta
+      origen:           'geofence_push',
+    }]).then(({ error }) => {
+      if (error) console.warn('[check-geofence] Error métrica:', error.message);
     });
 
-    // ── Enviar push ───────────────────────────────────────────────────────────
+    if (distM > radio) {
+      return json({ ok: false, mensaje: 'Fuera de rango', distanciaMetros: Math.round(distM) });
+    }
+
+    const puntosLlegada = conexion.puntos_llegada ?? 2;
+
+    // ── Usar mensaje_geofence si existe, si no mensaje_promo ──────────────────
+    const mensajeCuerpo = conexion.mensaje_geofence?.trim()
+      || conexion.mensaje_promo?.trim()
+      || 'Confirma tu llegada';
+
+    const pushPayload = JSON.stringify({
+      titulo:           `¡Estás cerca de ${config.nombre}! 📍`,
+      cuerpo:           `${mensajeCuerpo} y gana +${puntosLlegada} puntos.`,
+      icono:            '/icons/icon-192.png',
+      urlMenu:          `${appUrl}/?r=${restauranteId}`,
+      restauranteId,
+      puntosLlegada,
+      restauranteNombre: config.nombre,
+    });
+
     webpush.setVapidDetails(vapidSubject, vapidPublicKey, vapidPrivateKey);
 
-    const subsToNotify = subscription ? [subscription] : [];
+    const subsToNotify: object[] = [];
 
-    // Si no viene suscripción inline, buscar únicamente las suscripciones
-    // registradas para ESTE restaurante (segmentación correcta).
-    if (subsToNotify.length === 0) {
+    if (subscription) {
+      subsToNotify.push(subscription);
+    } else {
       const { data: subs, error: errorSubs } = await supabase
         .from('push_subscriptions')
         .select('subscription_json')
         .eq('restaurante_id', restauranteId);
 
-      if (errorSubs) {
-        console.error('[check-geofence] Error consultando suscripciones:', errorSubs.message);
-      } else if (subs?.length) {
-        subsToNotify.push(...subs.map((s: any) => s.subscription_json));
-      }
+      if (errorSubs) console.warn('[check-geofence] Error suscripciones:', errorSubs.message);
+      if (subs?.length) subsToNotify.push(...subs.map((s: any) => s.subscription_json));
     }
 
     if (subsToNotify.length === 0) {
-      return new Response(JSON.stringify({
-        ok: true, mensaje: 'En rango pero sin suscripciones push registradas',
-        distanciaMetros: Math.round(distM),
-      }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      return json({ ok: true, mensaje: 'En rango, sin suscripciones push', distanciaMetros: Math.round(distM) });
     }
 
     const resultados = await Promise.allSettled(
@@ -175,22 +164,20 @@ Deno.serve(async (req: Request) => {
     );
 
     const enviados = resultados.filter(r => r.status === 'fulfilled').length;
-    const fallidos = resultados.filter(r => r.status === 'rejected').length;
+    const fallidos = resultados.filter(r => r.status === 'rejected') as PromiseRejectedResult[];
 
-    if (fallidos > 0) {
-      resultados
-        .filter(r => r.status === 'rejected')
-        .forEach(r => console.error('[push] Error enviando:', (r as any).reason?.message));
+    for (const f of fallidos) {
+      console.error('[push-error]', f.reason?.message);
+      if (f.reason?.statusCode === 410 && f.reason?.endpoint) {
+        await supabase.from('push_subscriptions').delete()
+          .eq('endpoint' as never, f.reason.endpoint);
+      }
     }
 
-    return new Response(JSON.stringify({
-      ok: true, distanciaMetros: Math.round(distM), enviados, fallidos,
-    }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    return json({ ok: true, distanciaMetros: Math.round(distM), enviados, fallidos: fallidos.length });
 
   } catch (err: any) {
     console.error('[check-geofence] Error inesperado:', err?.message ?? err);
-    return new Response(JSON.stringify({ error: `Error interno: ${err?.message ?? 'desconocido'}` }), {
-      status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    return json({ error: `Error interno: ${err?.message ?? 'desconocido'}` }, 500);
   }
 });

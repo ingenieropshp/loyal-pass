@@ -1,20 +1,9 @@
 /**
- * save-push-subscription/index.ts — Supabase Edge Function (Deno)
- *
- * Endpoint: POST /functions/v1/save-push-subscription
- *
- * Guarda o actualiza la PushSubscription del dispositivo en la tabla
- * push_subscriptions para que check-geofence pueda enviarle pushes
- * incluso cuando el usuario no tiene la app abierta.
- *
- * La tabla debe existir en Supabase (ver migration_push.sql):
- *   CREATE TABLE push_subscriptions (
- *     id               uuid DEFAULT gen_random_uuid() PRIMARY KEY,
- *     endpoint         text UNIQUE NOT NULL,
- *     subscription_json jsonb NOT NULL,
- *     created_at       timestamptz DEFAULT now(),
- *     updated_at       timestamptz DEFAULT now()
- *   );
+ * save-push-subscription/index.ts — v2.0
+ * Fixes:
+ *  - onConflict usa solo 'endpoint' (la tabla no tiene unique en endpoint+restaurante_id)
+ *  - SUPABASE_SECRET_KEYS: compatible nuevo y legacy formato
+ *  - restaurante_id: se guarda pero no forma parte del constraint de unicidad
  */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -23,6 +12,18 @@ const corsHeaders = {
   'Access-Control-Allow-Origin':  '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
+
+function getServiceRoleKey(): string {
+  const secretKeys = Deno.env.get('SUPABASE_SECRET_KEYS');
+  if (secretKeys) {
+    try {
+      const parsed = JSON.parse(secretKeys);
+      const key = parsed?.service_role ?? Object.values(parsed)[0];
+      if (key) return String(key);
+    } catch { /* fallback */ }
+  }
+  return Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+}
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
@@ -42,31 +43,30 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    if (!restauranteId) {
-      return new Response(JSON.stringify({ error: 'Falta restauranteId' }), {
-        status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL')!,
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+      getServiceRoleKey(),
       { auth: { persistSession: false } }
     );
 
+    // ── FIX Bug 3: onConflict solo en 'endpoint' (único índice único real) ────
+    // restaurante_id se guarda como dato pero no forma parte del constraint
     const { error } = await supabase
       .from('push_subscriptions')
       .upsert(
         {
           endpoint:          subscription.endpoint,
           subscription_json: subscription,
-          restaurante_id:    restauranteId,
+          restaurante_id:    restauranteId ?? null,  // guardarlo como dato
           updated_at:        new Date().toISOString(),
         },
-        { onConflict: 'endpoint,restaurante_id' }
+        { onConflict: 'endpoint' }  // ← solo endpoint, que es el unique real
       );
 
-    if (error) throw error;
+    if (error) {
+      console.error('[save-push-subscription] Error upsert:', error.message);
+      throw error;
+    }
 
     return new Response(JSON.stringify({ ok: true }), {
       status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
