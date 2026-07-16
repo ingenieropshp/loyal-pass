@@ -379,30 +379,36 @@ export const UserDashboard = ({
           <div className="pin-container animate-fade-in">
             <span className="pin-label">PIN del mesero</span>
 
-            {/* Cajas visuales */}
-            <div className="pin-boxes">
-              {Array.from({ length: 4 }).map((_, i) => (
-                <div
-                  key={i}
-                  className={`pin-box${i === pinIngresado.length ? ' active' : pinIngresado[i] ? '' : ' empty'}`}
-                >
-                  {pinIngresado[i] ? '•' : ''}
-                </div>
-              ))}
-            </div>
+            {/* Cajas visuales + input real superpuesto (tocable en toda el área) */}
+            <div
+              className="pin-input-wrapper"
+              onClick={() => pinInputRef.current?.focus()}
+            >
+              <div className="pin-boxes">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <div
+                    key={i}
+                    className={`pin-box${i === pinIngresado.length ? ' active' : pinIngresado[i] ? '' : ' empty'}`}
+                  >
+                    {pinIngresado[i] ? '•' : ''}
+                  </div>
+                ))}
+              </div>
 
-            {/* Input real invisible para teclado nativo */}
-            <input
-              ref={pinInputRef}
-              type="tel"
-              inputMode="numeric"
-              pattern="[0-9]*"
-              maxLength={4}
-              value={pinIngresado}
-              onChange={(e) => setPinIngresado(e.target.value.replace(/\D/g, '').slice(0, 4))}
-              className="pin-input-hidden"
-              aria-label="Ingresa PIN de 4 dígitos"
-            />
+              {/* Input real invisible para teclado nativo, superpuesto y tocable */}
+              <input
+                ref={pinInputRef}
+                type="tel"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                maxLength={4}
+                autoComplete="one-time-code"
+                value={pinIngresado}
+                onChange={(e) => setPinIngresado(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                className="pin-input-hidden"
+                aria-label="Ingresa PIN de 4 dígitos"
+              />
+            </div>
 
             <div className="pin-actions">
               <button onClick={() => { setMostrarPin(false); setPinIngresado(''); }} className="btn-cancel">

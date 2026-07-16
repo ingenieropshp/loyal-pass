@@ -193,13 +193,27 @@
 .pin-box.active  { border-color: var(--coral); background: var(--coral-light); }
 .pin-box.empty   { color: var(--border-mid); }
 
-/* Hidden real input */
+/* Contenedor que superpone el input real sobre las cajitas visuales,
+   para que el usuario pueda tocar en cualquier parte y abrir el teclado */
+.pin-input-wrapper {
+  position: relative;
+}
+
+/* Input real: invisible pero SIEMPRE tocable (pointer-events: auto)
+   y con font-size >= 16px para evitar el zoom automático de iOS Safari
+   al enfocar inputs pequeños (esa era la causa del "bug" visual). */
 .pin-input-hidden {
   position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   opacity: 0;
-  pointer-events: none;
-  width: 1px;
-  height: 1px;
+  pointer-events: auto;
+  font-size: 16px;
+  caret-color: transparent;
+  border: none;
+  background: transparent;
+  z-index: 2;
 }
 
 .pin-actions {
