@@ -1,0 +1,10 @@
+[{
+  "relation": ["delegate_permission/common.handle_all_urls"],
+  "target": {
+    "namespace": "android_app",
+    "package_name": "dev.pages.bistro_app.twa",
+    "sha256_cert_fingerprints": [
+      "36:3B:6D:6F:1C:30:D7:1E:2F:ED:0E:7F:56:EA:E3:F1:12:95:EE:28:60:D4:D3:41:50:BC:AF:61:C2:F5:91:86"
+    ]
+  }
+}]
