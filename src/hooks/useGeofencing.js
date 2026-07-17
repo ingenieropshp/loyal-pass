@@ -64,7 +64,9 @@ export function useGeofencing(restaurantes = []) {
             applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
           });
         }
-        // Guardar suscripción en Supabase
+        // Guardar suscripción en Supabase — incluir restauranteId para que
+        // check-geofence pueda filtrar suscripciones por restaurante
+        const primerRestaurante = listaRestaurantes[0]?.restaurante_id ?? null;
         fetch(`${SUPABASE_URL}/functions/v1/save-push-subscription`, {
           method:  'POST',
           headers: {
@@ -72,7 +74,10 @@ export function useGeofencing(restaurantes = []) {
             'apikey':        SUPABASE_ANON_KEY,
             'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
           },
-          body: JSON.stringify({ subscription: sub.toJSON() }),
+          body: JSON.stringify({
+            subscription:  sub.toJSON(),
+            restauranteId: primerRestaurante,   // ← fix: sin esto push_subscriptions.restaurante_id queda null
+          }),
         }).catch(() => {});
       }
 
