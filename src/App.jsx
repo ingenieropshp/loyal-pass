@@ -248,13 +248,11 @@ function App() {
             {esCerca ? '✓' : '📍'}
           </div>
           <div style={{ flex: 1 }}>
-            <div className="prox-label">{esCerca ? '¡Bienvenido!' : 'Estás a'}</div>
+            <div className="prox-label">{esCerca ? '¡Bienvenido! Estás a' : 'Estás a'}</div>
             <div className="prox-distance">
-              {esCerca
-                ? 'Estás aquí'
-                : distancia >= 1000
-                  ? `${(distancia / 1000).toFixed(1)} km`
-                  : `${Math.round(distancia)} metros`}
+              {distancia >= 1000
+                ? `${(distancia / 1000).toFixed(1)} km`
+                : `${Math.round(distancia)} metros`}
             </div>
           </div>
           {bistroLoc?.latitud && bistroLoc?.longitud && (
