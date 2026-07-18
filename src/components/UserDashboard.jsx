@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from '../services/supabaseClient';
-import { useIOS } from '../hooks/useIOS';
+import { TarjetaFidelizacion }              from './TarjetaFidelizacion';
+import { CatalogoRecompensas, ModalCanje }  from './CatalogoRecompensas';
+import { HistorialPuntos }                  from './HistorialPuntos';
 import './UserDashboard.css';
 
 const calcularDistancia = (lat1, lon1, lat2, lon2) => {
@@ -66,11 +68,12 @@ export const UserDashboard = ({
   const [esCerca,        setEsCerca]        = useState(inicialEsCerca || false);
   const [mostrarPin,     setMostrarPin]     = useState(false);
   const [pinIngresado,   setPinIngresado]   = useState('');
-  // Configuración dinámica del restaurante (se lee de conexion al montar)
   const [puntosLlegada,  setPuntosLlegada]  = useState(2);
   const [metaPuntos,     setMetaPuntos]     = useState(20);
+  // ── Nuevos estados para recompensas ───────────────────────────────────────
+  const [recompensaACanjear, setRecompensaACanjear] = useState(null);
+  const [historialKey,       setHistorialKey]       = useState(0); // fuerza re-render del historial
   const pinInputRef = useRef(null);
-  const { isIOS } = useIOS(); // en iOS el aviso automático de cercanía no funciona en 2do plano
 
   // Sincronizar esCerca cuando cambia la distancia desde App.jsx
   useEffect(() => {
@@ -290,6 +293,16 @@ export const UserDashboard = ({
 
       setCliente(prev => ({ ...prev, ...updates, pin_individual: db.pin_individual }));
 
+      // Registrar en historial de puntos
+      await supabase.from('historial_puntos').insert([{
+        cliente_id:     clienteId,
+        restaurante_id: restauranteId,
+        tipo:           'visita',
+        puntos:         puntosLlegada,
+        descripcion:    `Visita confirmada en ${nombreRestaurante}`,
+      }]);
+      setHistorialKey(k => k + 1); // refrescar historial
+
       if (tienePremio) alert(`🎉 ¡${metaPuntos} puntos! Muéstrale esto al mesero para reclamar tu premio.`);
       else alert(`✅ ¡+${puntosLlegada} puntos! Ahora tienes ${nuevosPuntos} puntos.`);
 
@@ -323,7 +336,15 @@ export const UserDashboard = ({
   // ── Render ─────────────────────────────────────────────────────────────
   return (
     <div className="dashboard-container animate-fade-in">
-      {/* Header */}
+
+      {/* ── Tarjeta de fidelización con nivel ─────────────────────────── */}
+      <TarjetaFidelizacion
+        cliente={cliente}
+        nombreRestaurante={nombreRestaurante}
+        puntosTotales={puntos}
+      />
+
+      {/* Header nombre */}
       <div className="dash-welcome">Hola de nuevo,</div>
       <div className="dash-name">{cliente.nombre?.toUpperCase()}</div>
 
@@ -436,14 +457,34 @@ export const UserDashboard = ({
         Confirma tu llegada en cada visita para seguir sumando puntos y premios.
       </p>
 
-      {/* Solo iPhone: el aviso automático de cercanía no funciona con la app
-          cerrada o el celular bloqueado (limitación de iOS, no de la app).
-          Se lo explicamos para que no piensen que está fallando. */}
-      {isIOS && (
-        <p className="footer-text" style={{ opacity: 0.65, marginTop: 4 }}>
-          📍 En iPhone, abre la app al llegar para confirmar tu visita —
-          el aviso automático solo funciona con la app abierta.
-        </p>
+      {/* ── Catálogo de recompensas ────────────────────────────────────── */}
+      <CatalogoRecompensas
+        restauranteId={restauranteId}
+        puntosActuales={puntos}
+        onCanjear={r => setRecompensaACanjear(r)}
+      />
+
+      {/* ── Historial de puntos ────────────────────────────────────────── */}
+      <HistorialPuntos
+        key={historialKey}
+        clienteId={clienteId}
+        restauranteId={restauranteId}
+      />
+
+      {/* ── Modal de canje ─────────────────────────────────────────────── */}
+      {recompensaACanjear && (
+        <ModalCanje
+          recompensa={recompensaACanjear}
+          clienteId={clienteId}
+          puntosActuales={puntos}
+          onExito={(nuevosPuntos, recompensa) => {
+            setCliente(prev => ({ ...prev, puntos: nuevosPuntos }));
+            setHistorialKey(k => k + 1);
+            setRecompensaACanjear(null);
+            alert(`✅ ¡Canje exitoso! Muéstrale esto al mesero para recibir tu ${recompensa.nombre}.`);
+          }}
+          onCerrar={() => setRecompensaACanjear(null)}
+        />
       )}
     </div>
   );
