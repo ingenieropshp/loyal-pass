@@ -91,21 +91,35 @@ export const UserDashboard = ({
     if (mostrarPin) setTimeout(() => pinInputRef.current?.focus(), 100);
   }, [mostrarPin]);
 
-  // ── Días restantes del cupón ───────────────────────────────────────────
-  const diasRestantes = (() => {
-    if (!cliente?.fecha_cumplimiento) return null;
-    const vence = new Date(cliente.fecha_cumplimiento);
-    vence.setDate(vence.getDate() + 30);
-    return Math.ceil((vence - new Date()) / (1000 * 60 * 60 * 24));
-  })();
+  // ── Cupones activos del cliente en este restaurante ─────────────────────
+  const [cupones, setCupones] = useState([]);
+
+  const cargarCupones = async () => {
+    if (!clienteId) return;
+    const { data } = await supabase
+      .from('cupones')
+      .select('*')
+      .eq('cliente_id', clienteId)
+      .eq('restaurante_id', restauranteId)
+      .eq('estado', 'activo')
+      .gt('fecha_vencimiento', new Date().toISOString())
+      .order('fecha_canje', { ascending: false });
+    setCupones(data || []);
+  };
+
+  useEffect(() => { cargarCupones(); }, [clienteId, restauranteId]);
+
+  const diasRestantesDe = (fechaVencimiento) =>
+    Math.ceil((new Date(fechaVencimiento) - new Date()) / (1000 * 60 * 60 * 24));
 
   // ── Compartir cupón por WhatsApp ───────────────────────────────────────
-  const enviarRecordatorioWhatsApp = () => {
+  const enviarRecordatorioWhatsApp = (cupon) => {
+    const dias = diasRestantesDe(cupon.fecha_vencimiento);
     const msg =
       `*¡FELICIDADES!* 🎉\n\n` +
-      `Has completado tus ${metaPuntos} puntos en *${nombreRestaurante}*.\n\n` +
-      `🎫 *CUPÓN DE PREMIO*\nCódigo: ${clienteId.substring(0, 5).toUpperCase()}\n\n` +
-      `⚠️ Preséntalo al mesero. Tienes ${diasRestantes} días.\n¡Te esperamos! 🍕`;
+      `Tienes un premio activo en *${nombreRestaurante}*: ${cupon.nombre}\n\n` +
+      `🎫 *CUPÓN DE PREMIO*\nCódigo: ${cupon.codigo}\n\n` +
+      `⚠️ Preséntalo al mesero. Tienes ${dias > 0 ? dias : 0} días.\n¡Te esperamos! 🍕`;
     window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
   };
 
@@ -245,10 +259,6 @@ export const UserDashboard = ({
       const updates = {
         puntos:        nuevosPuntos,
         ultima_visita: new Date().toISOString(),
-        ...(tienePremio && {
-          reclamo_pendiente:  true,
-          fecha_cumplimiento: new Date().toISOString(),
-        }),
       };
 
       const { error: errUpdate } = await supabase
@@ -256,6 +266,22 @@ export const UserDashboard = ({
       if (errUpdate) throw errUpdate;
 
       setCliente(prev => ({ ...prev, ...updates, pin_individual: db.pin_individual }));
+
+      // Si completó la meta, genera un cupón real (código único + 30 días de vigencia)
+      if (tienePremio) {
+        const fechaVencimiento = new Date();
+        fechaVencimiento.setDate(fechaVencimiento.getDate() + 30);
+        const { error: errCupon } = await supabase.from('cupones').insert([{
+          cliente_id:        clienteId,
+          restaurante_id:    restauranteId,
+          nombre:            'Premio por visitas',
+          codigo:            Math.random().toString(36).slice(2, 7).toUpperCase(),
+          estado:            'activo',
+          fecha_vencimiento: fechaVencimiento.toISOString(),
+        }]);
+        if (errCupon) console.error('[manejarConfirmacion] Error al crear el cupón:', errCupon);
+        else cargarCupones();
+      }
 
       // Registrar en historial de puntos — fire-and-forget: no bloquea la
       // alerta de éxito, que ya puede mostrarse con los puntos actualizados.
@@ -312,27 +338,30 @@ export const UserDashboard = ({
       <div className="dash-welcome">Hola de nuevo,</div>
       <div className="dash-name">{cliente.nombre?.toUpperCase()}</div>
 
-      {/* Cupón activo */}
-      {cliente.reclamo_pendiente && (
-        <div className="coupon-card-container animate-bounce-slow">
-          <div className="coupon-card">
-            <div className="coupon-accent-bar" />
-            <div className="coupon-body">
-              <div className="coupon-tag">Premio desbloqueado</div>
-              <div className="coupon-title">Vale por 1 premio</div>
-              <div className="coupon-sub">Presenta este código al mesero</div>
-              <div className="coupon-code">{clienteId.substring(0, 5).toUpperCase()}</div>
+      {/* Cupones activos (premio por visitas + canjes del catálogo) */}
+      {cupones.map(cupon => {
+        const dias = diasRestantesDe(cupon.fecha_vencimiento);
+        return (
+          <div key={cupon.id} className="coupon-card-container animate-bounce-slow">
+            <div className="coupon-card">
+              <div className="coupon-accent-bar" />
+              <div className="coupon-body">
+                <div className="coupon-tag">Premio desbloqueado</div>
+                <div className="coupon-title">{cupon.nombre}</div>
+                <div className="coupon-sub">Presenta este código al mesero</div>
+                <div className="coupon-code">{cupon.codigo}</div>
+              </div>
+              <div className="coupon-days-col">
+                <div className="coupon-days-num">{dias > 0 ? dias : '!'}</div>
+                <div className="coupon-days-label">{dias > 0 ? 'días' : 'vencido'}</div>
+              </div>
             </div>
-            <div className="coupon-days-col">
-              <div className="coupon-days-num">{diasRestantes > 0 ? diasRestantes : '!'}</div>
-              <div className="coupon-days-label">{diasRestantes > 0 ? 'días' : 'vencido'}</div>
-            </div>
+            <button onClick={() => enviarRecordatorioWhatsApp(cupon)} className="btn-whatsapp-remind">
+              📩 Guardar cupón en WhatsApp
+            </button>
           </div>
-          <button onClick={enviarRecordatorioWhatsApp} className="btn-whatsapp-remind">
-            📩 Guardar cupón en WhatsApp
-          </button>
-        </div>
-      )}
+        );
+      })}
 
       {/* Acciones */}
       <div className="actions-stack">
@@ -423,6 +452,7 @@ export const UserDashboard = ({
             setCliente(prev => ({ ...prev, puntos: nuevosPuntos }));
             setHistorialKey(k => k + 1);
             setRecompensaACanjear(null);
+            cargarCupones();
             alert(`✅ ¡Canje exitoso! Muéstrale esto al mesero para recibir tu ${recompensa.nombre}.`);
           }}
           onCerrar={() => setRecompensaACanjear(null)}

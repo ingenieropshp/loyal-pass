@@ -137,6 +137,11 @@ export function CatalogoRecompensas({ restauranteId, puntosActuales = 0, onCanje
   );
 }
 
+// ── Utilidad: código corto único para el cupón ────────────────────────────────
+function generarCodigoCupon() {
+  return Math.random().toString(36).slice(2, 7).toUpperCase();
+}
+
 // ── Modal de confirmación de canje ────────────────────────────────────────────
 export function ModalCanje({ recompensa, clienteId, puntosActuales, onExito, onCerrar }) {
   const [procesando, setProcesando] = useState(false);
@@ -162,6 +167,23 @@ export function ModalCanje({ recompensa, clienteId, puntosActuales, onExito, onC
         descripcion:    `Canjeó: ${recompensa.nombre}`,
         restaurante_id: recompensa.restaurante_id,
       }]);
+
+      // Generar el cupón real: código único + vigencia (dias_vigencia de la
+      // recompensa, o 7 días por defecto si el admin no lo configuró)
+      const diasVigencia = recompensa.dias_vigencia || 7;
+      const fechaVencimiento = new Date();
+      fechaVencimiento.setDate(fechaVencimiento.getDate() + diasVigencia);
+
+      const { error: errCupon } = await supabase.from('cupones').insert([{
+        cliente_id:        clienteId,
+        restaurante_id:    recompensa.restaurante_id,
+        recompensa_id:     recompensa.id,
+        nombre:            recompensa.nombre,
+        codigo:            generarCodigoCupon(),
+        estado:            'activo',
+        fecha_vencimiento: fechaVencimiento.toISOString(),
+      }]);
+      if (errCupon) console.error('[ModalCanje] Error al crear el cupón:', errCupon);
 
       onExito?.(nuevosPuntos, recompensa);
     } catch {
