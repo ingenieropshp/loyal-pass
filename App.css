@@ -1,0 +1,144 @@
+/* ===== APP LAYOUT ===== */
+.main-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 100vh;
+  padding: 1.5rem 1rem 3rem;
+  width: 100%;
+  max-width: 480px;
+  margin: 0 auto;
+}
+
+main {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* ===== HEADER ===== */
+.bistro-title {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 3.2rem;
+  letter-spacing: -0.04em;
+  color: var(--text-h);
+  line-height: 1;
+}
+
+.bistro-title .dot { color: var(--coral); }
+
+/* ===== PROXIMITY BADGE ===== */
+.proximity-badge {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 14px 16px;
+  border-radius: var(--r-lg);
+  background: var(--coral-light);
+  border: 1px solid var(--coral-border);
+  margin-bottom: 1.5rem;
+  transition: all 0.3s ease;
+}
+
+.proximity-badge.near {
+  background: var(--green-light);
+  border-color: var(--green-border);
+}
+
+.prox-icon-wrap {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--r-sm);
+  background: var(--coral);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  flex-shrink: 0;
+  transition: background 0.3s;
+}
+
+.proximity-badge.near .prox-icon-wrap { background: var(--green); }
+
+.prox-label {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #993C1D;
+  margin-bottom: 2px;
+}
+
+.proximity-badge.near .prox-label { color: #0F6E56; }
+
+.prox-distance {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.2rem;
+  color: #4A1B0C;
+  line-height: 1;
+}
+
+.proximity-badge.near .prox-distance { color: #04342C; }
+
+.gps-loader {
+  font-size: 0.8rem;
+  color: var(--text);
+  opacity: 0.6;
+  margin-bottom: 1.5rem;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ===== ERROR ALERT ===== */
+.error-alert {
+  width: 100%;
+  background: #FEF2F2;
+  color: #991B1B;
+  border: 1px solid #FECACA;
+  border-radius: var(--r-md);
+  padding: 10px 14px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  margin-bottom: 1rem;
+}
+
+/* ===== LOADER SCREEN ===== */
+.loader-spinner {
+  width: 36px;
+  height: 36px;
+  border: 3px solid var(--border);
+  border-top-color: var(--coral);
+  border-radius: 50%;
+  animation: spin 0.75s linear infinite;
+}
+
+/* ===== ANIMATIONS ===== */
+@keyframes spin    { to { transform: rotate(360deg); } }
+@keyframes fadeUp  { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes bounceSlow { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
+
+.animate-fade-in     { animation: fadeUp 0.5s ease-out forwards; }
+.animate-bounce-slow { animation: bounceSlow 2.5s ease-in-out infinite; }
+
+/* ===== FOOTER ===== */
+.version-footer {
+  margin-top: 3rem;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  opacity: 0.3;
+  color: var(--text);
+  text-align: center;
+}
+
+/* ===== RESPONSIVE ===== */
+@media (max-width: 380px) {
+  .bistro-title  { font-size: 2.6rem; }
+  .main-wrapper  { padding: 1rem 0.875rem 2.5rem; }
+}
