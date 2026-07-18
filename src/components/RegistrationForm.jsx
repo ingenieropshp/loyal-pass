@@ -28,7 +28,9 @@ export const RegistrationForm = ({ onSuccess, restaurantId, referidoPor }) => {
     try {
       const { data: existente, error: errorBusqueda } = await supabase
         .from('clientes').select('id, nombre, puntos')
-        .eq('telefono', formData.telefono.trim()).maybeSingle();
+        .eq('telefono', formData.telefono.trim())
+        .eq('restaurante_id', restaurantId)
+        .maybeSingle();
 
       if (errorBusqueda) throw errorBusqueda;
 
@@ -54,7 +56,15 @@ export const RegistrationForm = ({ onSuccess, restaurantId, referidoPor }) => {
       onSuccess?.(data.id, formData.nombre.trim(), 2);
     } catch (error) {
       console.error('Error en registro:', error);
-      alert('Hubo un problema al procesar los datos. Intenta de nuevo.');
+      if (error?.code === '23505') {
+        alert(
+          'Este teléfono ya está registrado en otro restaurante y la base de ' +
+          'datos aún no permite registros independientes por sede. ' +
+          'Contacta al administrador para actualizar la restricción UNIQUE en la tabla "clientes".'
+        );
+      } else {
+        alert('Hubo un problema al procesar los datos. Intenta de nuevo.');
+      }
     } finally {
       setLoading(false);
     }
