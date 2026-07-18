@@ -18,44 +18,6 @@ const calcularDistancia = (lat1, lon1, lat2, lon2) => {
 
 // TOTAL_PUNTOS eliminado — ahora se lee de la tabla conexion (configurable por admin)
 
-// ─── Badge de distancia ────────────────────────────────────────────────────────
-const DistanciaBadge = ({ distancia, esCerca }) => {
-  if (typeof distancia !== 'number') return null;
-
-  const texto = esCerca
-    ? 'Estás aquí'
-    : distancia >= 1000
-      ? `${(distancia / 1000).toFixed(1)} km`
-      : `${Math.round(distancia)} m`;
-
-  return (
-    <div
-      style={{
-        display:        'flex',
-        alignItems:     'center',
-        gap:            '8px',
-        padding:        '10px 16px',
-        borderRadius:   '12px',
-        background:     esCerca ? 'rgba(34,197,94,0.12)' : 'rgba(220,80,50,0.10)',
-        border:         `1px solid ${esCerca ? 'rgba(34,197,94,0.3)' : 'rgba(220,80,50,0.25)'}`,
-        marginBottom:   '12px',
-        fontSize:       '0.88rem',
-        fontWeight:     600,
-        color:          esCerca ? '#16a34a' : '#e04a2f',
-        transition:     'all 0.4s ease',
-      }}
-    >
-      <span style={{ fontSize: '1.1rem' }}>{esCerca ? '✓' : '📍'}</span>
-      <div>
-        <div style={{ fontSize: '0.72rem', fontWeight: 500, opacity: 0.7, marginBottom: '1px' }}>
-          {esCerca ? '¡Bienvenido!' : 'Estás a'}
-        </div>
-        <div>{texto}</div>
-      </div>
-    </div>
-  );
-};
-
 export const UserDashboard = ({
   restauranteId,
   clienteId,
@@ -393,9 +355,6 @@ export const UserDashboard = ({
           ))}
         </div>
       </div>
-
-      {/* ── BUG 2 CORREGIDO: badge de distancia en tiempo real ── */}
-      <DistanciaBadge distancia={distancia} esCerca={esCerca} />
 
       {/* Acciones */}
       <div className="actions-stack">
