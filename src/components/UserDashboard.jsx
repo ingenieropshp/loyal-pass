@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from '../services/supabaseClient';
+import { useIOS } from '../hooks/useIOS';
 import './UserDashboard.css';
 
 const calcularDistancia = (lat1, lon1, lat2, lon2) => {
@@ -69,6 +70,7 @@ export const UserDashboard = ({
   const [puntosLlegada,  setPuntosLlegada]  = useState(2);
   const [metaPuntos,     setMetaPuntos]     = useState(20);
   const pinInputRef = useRef(null);
+  const { isIOS } = useIOS(); // en iOS el aviso automático de cercanía no funciona en 2do plano
 
   // Sincronizar esCerca cuando cambia la distancia desde App.jsx
   useEffect(() => {
@@ -433,6 +435,16 @@ export const UserDashboard = ({
       <p className="footer-text">
         Confirma tu llegada en cada visita para seguir sumando puntos y premios.
       </p>
+
+      {/* Solo iPhone: el aviso automático de cercanía no funciona con la app
+          cerrada o el celular bloqueado (limitación de iOS, no de la app).
+          Se lo explicamos para que no piensen que está fallando. */}
+      {isIOS && (
+        <p className="footer-text" style={{ opacity: 0.65, marginTop: 4 }}>
+          📍 En iPhone, abre la app al llegar para confirmar tu visita —
+          el aviso automático solo funciona con la app abierta.
+        </p>
+      )}
     </div>
   );
 };
