@@ -296,9 +296,6 @@ export const UserDashboard = ({
   if (!cliente) return <div className="loading-container">Sincronizando…</div>;
 
   const puntos     = cliente.puntos || 0;
-  const progreso   = Math.min(puntos / metaPuntos, 1);
-  const DOTS       = 10;
-  const dotsLlenos = Math.floor((puntos / metaPuntos) * DOTS);
 
   // ── Render ─────────────────────────────────────────────────────────────
   return (
@@ -336,25 +333,6 @@ export const UserDashboard = ({
           </button>
         </div>
       )}
-
-      {/* Progress */}
-      <div className="progress-section">
-        <div className="progress-header">
-          <span className="progress-label">Progreso hacia tu premio</span>
-          <span className="progress-count">{puntos} / {metaPuntos} pts</span>
-        </div>
-        <div className="progress-track">
-          <div className="progress-fill" style={{ width: `${progreso * 100}%` }} />
-        </div>
-        <div className="progress-dots">
-          {Array.from({ length: DOTS }).map((_, i) => (
-            <div
-              key={i}
-              className={`progress-dot${i < dotsLlenos ? ' filled' : i === dotsLlenos && puntos % 2 !== 0 ? ' current' : ''}`}
-            />
-          ))}
-        </div>
-      </div>
 
       {/* Acciones */}
       <div className="actions-stack">
