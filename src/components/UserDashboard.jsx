@@ -166,7 +166,7 @@ export const UserDashboard = ({
     try {
       return await obtenerPosicion({
         enableHighAccuracy: true,
-        timeout: 8000,
+        timeout: 5000,
         maximumAge: 10000,
       });
     } catch (err) {
@@ -228,21 +228,23 @@ export const UserDashboard = ({
       const { latitude: uLat, longitude: uLon } = pos.coords;
       const distM = calcularDistancia(uLat, uLon, rLat, rLon) * 1000;
 
-      const { error: insertError } = await supabase.from('metricas_proximidad').insert([{
+      // Fire-and-forget: no bloquea el flujo del usuario (la confirmación de
+      // llegada no depende de esta métrica). Antes se hacía "await" y eso
+      // sumaba un viaje de red completo antes de poder mostrar el PIN.
+      supabase.from('metricas_proximidad').insert([{
         cliente:              cliente?.nombre || 'Anónimo',
         restaurante:          nombreRestaurante,
         restaurante_id:       restauranteId,
         distancia:            Math.round(distM),
         dentro_del_rango_800: distM <= 800,
         es_exito_total:       distM <= radio,
-      }]);
-
-      if (insertError) {
-        // No detiene el flujo del usuario (la confirmación de llegada no depende
-        // de la métrica), pero queda registrado para diagnosticar problemas de
-        // RLS/permisos en la tabla metricas_proximidad sin afectar al cliente.
-        console.error('[validarUbicacion] Error al insertar en metricas_proximidad:', insertError);
-      }
+      }]).then(({ error: insertError }) => {
+        if (insertError) {
+          // Queda registrado para diagnosticar problemas de RLS/permisos
+          // en la tabla metricas_proximidad sin afectar al cliente.
+          console.error('[validarUbicacion] Error al insertar en metricas_proximidad:', insertError);
+        }
+      });
 
       if (distM <= radio) {
         setEsCerca(true);
@@ -293,15 +295,18 @@ export const UserDashboard = ({
 
       setCliente(prev => ({ ...prev, ...updates, pin_individual: db.pin_individual }));
 
-      // Registrar en historial de puntos
-      await supabase.from('historial_puntos').insert([{
+      // Registrar en historial de puntos — fire-and-forget: no bloquea la
+      // alerta de éxito, que ya puede mostrarse con los puntos actualizados.
+      supabase.from('historial_puntos').insert([{
         cliente_id:     clienteId,
         restaurante_id: restauranteId,
         tipo:           'visita',
         puntos:         puntosLlegada,
         descripcion:    `Visita confirmada en ${nombreRestaurante}`,
-      }]);
-      setHistorialKey(k => k + 1); // refrescar historial
+      }]).then(({ error: errHistorial }) => {
+        if (errHistorial) console.error('[manejarConfirmacion] Error en historial_puntos:', errHistorial);
+        setHistorialKey(k => k + 1); // refrescar historial cuando termine
+      });
 
       if (tienePremio) alert(`🎉 ¡${metaPuntos} puntos! Muéstrale esto al mesero para reclamar tu premio.`);
       else alert(`✅ ¡+${puntosLlegada} puntos! Ahora tienes ${nuevosPuntos} puntos.`);
