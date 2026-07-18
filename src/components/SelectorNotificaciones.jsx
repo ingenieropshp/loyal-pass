@@ -12,6 +12,7 @@
  */
 
 import { useState, useEffect } from 'react';
+import { useIOS } from '../hooks/useIOS';
 
 const LS_KEY = 'bistro_notif_prefs';
 
@@ -34,6 +35,8 @@ export function SelectorNotificaciones({ restaurantes = [] }) {
   const [prefs,    setPrefs]    = useState(getNotifPrefs());
   const [permiso,  setPermiso]  = useState(Notification.permission); // 'default'|'granted'|'denied'
   const [visible,  setVisible]  = useState(false);
+  const { isIOS, isStandalone } = useIOS();
+  const iosNoInstalado = isIOS && !isStandalone; // iPhone sin agregar a inicio: push no puede funcionar todavía
 
   // Sincronizar permiso real del navegador
   useEffect(() => {
@@ -134,8 +137,22 @@ export function SelectorNotificaciones({ restaurantes = [] }) {
             </div>
           )}
 
-          {/* Pedir permiso si no se ha decidido */}
-          {permiso === 'default' && (
+          {/* iPhone sin instalar: el permiso de notificaciones no funciona todavía.
+              Mostramos las instrucciones de instalación en vez del botón, que
+              en este estado no haría nada útil y confundiría al usuario. */}
+          {iosNoInstalado && (
+            <div style={{
+              padding: '10px 14px', marginBottom: 12,
+              background: '#fff3cd', borderRadius: 10,
+              fontSize: '0.82rem', color: '#7d5900',
+            }}>
+              📲 En iPhone, primero agrega la app a tu pantalla de inicio
+              (Compartir → Agregar a inicio) para poder activar las notificaciones.
+            </div>
+          )}
+
+          {/* Pedir permiso si no se ha decidido — solo cuando sí puede funcionar */}
+          {permiso === 'default' && !iosNoInstalado && (
             <div style={{ marginBottom: 12 }}>
               <p style={{ fontSize: '0.82rem', margin: '0 0 8px', opacity: 0.7 }}>
                 Activa los permisos para recibir notificaciones cuando estés cerca.
