@@ -267,21 +267,12 @@ export const UserDashboard = ({
 
       setCliente(prev => ({ ...prev, ...updates, pin_individual: db.pin_individual }));
 
-      // Si completó la meta, genera un cupón real (código único + 30 días de vigencia)
-      if (tienePremio) {
-        const fechaVencimiento = new Date();
-        fechaVencimiento.setDate(fechaVencimiento.getDate() + 30);
-        const { error: errCupon } = await supabase.from('cupones').insert([{
-          cliente_id:        clienteId,
-          restaurante_id:    restauranteId,
-          nombre:            'Premio por visitas',
-          codigo:            Math.random().toString(36).slice(2, 7).toUpperCase(),
-          estado:            'activo',
-          fecha_vencimiento: fechaVencimiento.toISOString(),
-        }]);
-        if (errCupon) console.error('[manejarConfirmacion] Error al crear el cupón:', errCupon);
-        else cargarCupones();
-      }
+      // NOTA: antes aquí se generaba un cupón automático "Premio por visitas"
+      // directo a la tabla `cupones`, sin recompensa asociada y sin pasar por
+      // la función RPC de canje. Se eliminó porque quedó duplicado con el
+      // catálogo de recompensas (CatalogoRecompensas.jsx / canjear_recompensa):
+      // ahora, al llegar a la meta de puntos, el cliente simplemente ve
+      // disponibles sus recompensas en el catálogo y las canjea desde ahí.
 
       // Registrar en historial de puntos — fire-and-forget: no bloquea la
       // alerta de éxito, que ya puede mostrarse con los puntos actualizados.
@@ -296,7 +287,7 @@ export const UserDashboard = ({
         setHistorialKey(k => k + 1); // refrescar historial cuando termine
       });
 
-      if (tienePremio) alert(`🎉 ¡${metaPuntos} puntos! Muéstrale esto al mesero para reclamar tu premio.`);
+      if (tienePremio) alert(`🎉 ¡Llegaste a ${metaPuntos} puntos! Ya puedes canjear tu premio en el catálogo de recompensas.`);
       else alert(`✅ ¡+${puntosLlegada} puntos! Ahora tienes ${nuevosPuntos} puntos.`);
 
       setMostrarPin(false);
