@@ -143,7 +143,8 @@ export function CatalogoRecompensas({ restauranteId, puntosActuales = 0, onCanje
 // (ver 002_canje_rpc.sql), para que un fallo a mitad de camino no deje al
 // cliente sin puntos y sin cupón.
 export function ModalCanje({ recompensa, clienteId, puntosActuales, onExito, onCerrar }) {
-  const [procesando, setProcesando] = useState(false);
+  const [procesando, setProcesando]     = useState(false);
+  const [cuponGenerado, setCuponGenerado] = useState(null); // { codigo, nombre, fecha_vencimiento }
 
   const confirmarCanje = async () => {
     if (!recompensa || procesando) return;
@@ -155,8 +156,7 @@ export function ModalCanje({ recompensa, clienteId, puntosActuales, onExito, onC
       });
       if (error) throw error;
 
-      const nuevosPuntos = puntosActuales - recompensa.puntos_requeridos;
-      onExito?.(nuevosPuntos, recompensa, cupon);
+      setCuponGenerado(cupon);
     } catch (err) {
       const legibles = {
         PUNTOS_INSUFICIENTES:     'No tienes suficientes puntos para este premio.',
@@ -169,6 +169,11 @@ export function ModalCanje({ recompensa, clienteId, puntosActuales, onExito, onC
     }
   };
 
+  const cerrarConExito = () => {
+    const nuevosPuntos = puntosActuales - recompensa.puntos_requeridos;
+    onExito?.(nuevosPuntos, recompensa, cuponGenerado);
+  };
+
   if (!recompensa) return null;
 
   return (
@@ -176,7 +181,7 @@ export function ModalCanje({ recompensa, clienteId, puntosActuales, onExito, onC
       position:   'fixed', inset: 0, zIndex: 9999,
       background: 'rgba(0,0,0,0.55)',
       display:    'flex', alignItems: 'flex-end',
-    }} onClick={e => e.target === e.currentTarget && onCerrar?.()}>
+    }} onClick={e => e.target === e.currentTarget && (cuponGenerado ? cerrarConExito() : onCerrar?.())}>
       <div style={{
         width: '100%', background: 'var(--bg-card)',
         borderRadius: '20px 20px 0 0', padding: '24px 20px 32px',
@@ -184,53 +189,103 @@ export function ModalCanje({ recompensa, clienteId, puntosActuales, onExito, onC
         {/* Handle */}
         <div style={{ width: 36, height: 4, background: 'var(--border)', borderRadius: 2, margin: '0 auto 20px' }} />
 
-        <div style={{ textAlign: 'center', marginBottom: 20 }}>
-          <span style={{ fontSize: '3rem' }}>{ICONOS[recompensa.tipo] ?? ICONOS.default}</span>
-          <h3 style={{ margin: '10px 0 4px', fontFamily: 'var(--font-display)', fontWeight: 800 }}>
-            {recompensa.nombre}
-          </h3>
-          <p style={{ margin: 0, color: 'var(--text)', opacity: 0.6, fontSize: '0.85rem' }}>
-            {recompensa.descripcion || 'Muestra este canje al mesero para reclamarlo.'}
-          </p>
-        </div>
+        {cuponGenerado ? (
+          <>
+            <div style={{ textAlign: 'center', marginBottom: 20 }}>
+              <span style={{ fontSize: '3rem' }}>✅</span>
+              <h3 style={{ margin: '10px 0 4px', fontFamily: 'var(--font-display)', fontWeight: 800 }}>
+                ¡Canje confirmado!
+              </h3>
+              <p style={{ margin: 0, color: 'var(--text)', opacity: 0.6, fontSize: '0.85rem' }}>
+                Muéstrale este código al mesero para reclamar tu {cuponGenerado.nombre}
+              </p>
+            </div>
 
-        <div style={{
-          background: 'var(--bg-subtle)', borderRadius: 12,
-          padding: '12px 16px', marginBottom: 20, textAlign: 'center',
-        }}>
-          <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text)', opacity: 0.7 }}>
-            Se descontarán de tu cuenta
-          </p>
-          <p style={{ margin: '4px 0 0', fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: '1.5rem', color: 'var(--coral)' }}>
-            -{recompensa.puntos_requeridos} pts
-          </p>
-        </div>
+            <div style={{
+              background: 'var(--bg-subtle)', borderRadius: 12,
+              padding: '18px 16px', marginBottom: 20, textAlign: 'center',
+            }}>
+              <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text)', opacity: 0.6, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+                Código de canje
+              </p>
+              <p style={{
+                margin: '6px 0 0', fontFamily: 'var(--font-display)', fontWeight: 800,
+                fontSize: '2.2rem', letterSpacing: '0.15em', color: 'var(--coral)',
+              }}>
+                {cuponGenerado.codigo}
+              </p>
+              {cuponGenerado.fecha_vencimiento && (
+                <p style={{ margin: '6px 0 0', fontSize: '0.75rem', color: 'var(--text)', opacity: 0.5 }}>
+                  Válido hasta {new Date(cuponGenerado.fecha_vencimiento).toLocaleDateString('es-CO', {
+                    day: '2-digit', month: 'short', year: 'numeric',
+                  })}
+                </p>
+              )}
+            </div>
 
-        <button
-          onClick={confirmarCanje}
-          disabled={procesando}
-          style={{
-            width: '100%', padding: '14px',
-            background: procesando ? 'var(--bg-subtle)' : 'var(--coral)',
-            color: procesando ? 'var(--text)' : 'white',
-            border: 'none', borderRadius: 14,
-            fontWeight: 800, fontSize: '1rem', cursor: 'pointer',
-            marginBottom: 10,
-          }}
-        >
-          {procesando ? 'Procesando…' : '✅ Confirmar canje'}
-        </button>
-        <button
-          onClick={onCerrar}
-          style={{
-            width: '100%', padding: '12px',
-            background: 'transparent', border: '1px solid var(--border)',
-            borderRadius: 14, fontWeight: 600, fontSize: '0.9rem',
-            cursor: 'pointer', color: 'var(--text)',
-          }}
-        >
-          Cancelar
-        </button>
+            <button
+              onClick={cerrarConExito}
+              style={{
+                width: '100%', padding: '14px',
+                background: 'var(--coral)', color: 'white',
+                border: 'none', borderRadius: 14,
+                fontWeight: 800, fontSize: '1rem', cursor: 'pointer',
+              }}
+            >
+              Listo
+            </button>
+          </>
+        ) : (
+          <>
+            <div style={{ textAlign: 'center', marginBottom: 20 }}>
+              <span style={{ fontSize: '3rem' }}>{ICONOS[recompensa.tipo] ?? ICONOS.default}</span>
+              <h3 style={{ margin: '10px 0 4px', fontFamily: 'var(--font-display)', fontWeight: 800 }}>
+                {recompensa.nombre}
+              </h3>
+              <p style={{ margin: 0, color: 'var(--text)', opacity: 0.6, fontSize: '0.85rem' }}>
+                {recompensa.descripcion || 'Muestra este canje al mesero para reclamarlo.'}
+              </p>
+            </div>
+
+            <div style={{
+              background: 'var(--bg-subtle)', borderRadius: 12,
+              padding: '12px 16px', marginBottom: 20, textAlign: 'center',
+            }}>
+              <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text)', opacity: 0.7 }}>
+                Se descontarán de tu cuenta
+              </p>
+              <p style={{ margin: '4px 0 0', fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: '1.5rem', color: 'var(--coral)' }}>
+                -{recompensa.puntos_requeridos} pts
+              </p>
+            </div>
+
+            <button
+              onClick={confirmarCanje}
+              disabled={procesando}
+              style={{
+                width: '100%', padding: '14px',
+                background: procesando ? 'var(--bg-subtle)' : 'var(--coral)',
+                color: procesando ? 'var(--text)' : 'white',
+                border: 'none', borderRadius: 14,
+                fontWeight: 800, fontSize: '1rem', cursor: 'pointer',
+                marginBottom: 10,
+              }}
+            >
+              {procesando ? 'Procesando…' : '✅ Confirmar canje'}
+            </button>
+            <button
+              onClick={onCerrar}
+              style={{
+                width: '100%', padding: '12px',
+                background: 'transparent', border: '1px solid var(--border)',
+                borderRadius: 14, fontWeight: 600, fontSize: '0.9rem',
+                cursor: 'pointer', color: 'var(--text)',
+              }}
+            >
+              Cancelar
+            </button>
+          </>
+        )}
       </div>
     </div>
   );

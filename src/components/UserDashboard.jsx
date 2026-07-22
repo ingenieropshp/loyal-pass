@@ -439,12 +439,11 @@ export const UserDashboard = ({
           recompensa={recompensaACanjear}
           clienteId={clienteId}
           puntosActuales={puntos}
-          onExito={(nuevosPuntos, recompensa) => {
+          onExito={(nuevosPuntos) => {
             setCliente(prev => ({ ...prev, puntos: nuevosPuntos }));
             setHistorialKey(k => k + 1);
             setRecompensaACanjear(null);
             cargarCupones();
-            alert(`✅ ¡Canje exitoso! Muéstrale esto al mesero para recibir tu ${recompensa.nombre}.`);
           }}
           onCerrar={() => setRecompensaACanjear(null)}
         />
