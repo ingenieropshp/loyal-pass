@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { supabase } from '../services/supabaseClient';
 import { SelectorNotificaciones } from './SelectorNotificaciones';
 
@@ -8,19 +8,21 @@ const calcularNivel = (ciclos = 0) => {
   return                   { label: 'Bronce', emoji: '🥉' };
 };
 
-export const BuscadorRestaurantes = () => {
+/**
+ * BuscadorRestaurantes — pantalla "home" después del login global.
+ * Props:
+ *   session   → sesión activa de Supabase Auth (App.jsx garantiza que
+ *               este componente solo se monta cuando ya existe sesión).
+ *   onLogout  → cierra sesión (mismo handler que usa UserDashboard).
+ */
+export const BuscadorRestaurantes = ({ session, onLogout }) => {
   const [restaurantes, setRestaurantes] = useState([]);
   const [busqueda, setBusqueda]         = useState('');
   const [cargando, setCargando]         = useState(true);
   const [error, setError]               = useState(null);
+  const [mostrarPerfil, setMostrarPerfil] = useState(false);
   // datos enriquecidos del cliente por sede: { [restauranteId]: { puntos, ciclos, nombre } }
   const [datosPorSede, setDatosPorSede] = useState({});
-
-  // IDs/nombres de restaurantes donde el cliente ya está inscrito
-  const misInscripciones = useMemo(() => {
-    try { return JSON.parse(localStorage.getItem('bistro_multisede') || '{}'); }
-    catch { return {}; }
-  }, []);
 
   useEffect(() => {
     const cargar = async () => {
@@ -33,13 +35,20 @@ export const BuscadorRestaurantes = () => {
         if (err) throw err;
         setRestaurantes(data || []);
 
-        // Enriquecer mis sedes con puntos y nivel
-        const idsClientes = Object.values(misInscripciones).filter(Boolean);
-        if (idsClientes.length > 0) {
-          const { data: clientesData } = await supabase
+        // ── Restaurantes donde el usuario YA está inscrito ────────────────
+        // Antes esto se leía de localStorage (bistro_multisede), lo que
+        // significaba que si el usuario borraba la app o cambiaba de
+        // dispositivo, perdía la vista de "Mis restaurantes" aunque sus
+        // puntos seguían intactos en la base de datos. Ahora se consulta
+        // directamente por `auth_user_id`, que es la cuenta global — así
+        // esta lista es la misma sin importar desde dónde entre.
+        if (session?.user?.id) {
+          const { data: clientesData, error: errCli } = await supabase
             .from('clientes')
             .select('id, nombre, puntos, ciclos_completados, restaurante_id')
-            .in('id', idsClientes);
+            .eq('auth_user_id', session.user.id);
+          if (errCli) throw errCli;
+
           const mapa = {};
           (clientesData || []).forEach(c => {
             mapa[c.restaurante_id] = {
@@ -58,25 +67,53 @@ export const BuscadorRestaurantes = () => {
       }
     };
     cargar();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [session?.user?.id]);
 
+  // Navega a la vista de la sede. App.jsx se encarga de todo lo demás:
+  // si el usuario ya está inscrito ahí, entra directo a su tarjeta de
+  // fidelización; si no, lo inscribe automáticamente (misma sesión, sin
+  // pedirle datos otra vez) y le muestra la bienvenida con sus puntos.
   const irA = (nombre) => { window.location.href = `/?r=${encodeURIComponent(nombre)}`; };
 
   const filtrados = restaurantes.filter(r =>
     r.nombre?.toLowerCase().includes(busqueda.trim().toLowerCase())
   );
 
-  const misRestaurantes = restaurantes.filter(r =>
-    misInscripciones[r.nombre] || misInscripciones[r.id]
-  );
+  const misRestaurantes = restaurantes.filter(r => !!datosPorSede[r.id]);
 
   return (
     <div style={styles.wrapper}>
       <header style={styles.header}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+          {onLogout && (
+            <button
+              onClick={() => setMostrarPerfil(v => !v)}
+              aria-label="Perfil y configuración"
+              style={styles.profileBtn}
+            >
+              ⚙️
+            </button>
+          )}
+        </div>
         <h1 style={styles.title}>Bistro Connect<span style={styles.dot}>.</span></h1>
         <p style={styles.subtitle}>Encuentra tu restaurante favorito</p>
       </header>
+
+      {mostrarPerfil && onLogout && (
+        <div style={styles.profilePanel}>
+          <span style={{ fontSize: '0.8rem', color: 'var(--text)', opacity: 0.75 }}>
+            {session?.user?.email || session?.user?.user_metadata?.telefono}
+          </span>
+          <button
+            onClick={() => {
+              if (window.confirm('¿Cerrar sesión?')) onLogout();
+            }}
+            style={styles.logoutBtn}
+          >
+            Cerrar sesión
+          </button>
+        </div>
+      )}
 
       {/* Mis restaurantes (vista multi-sede enriquecida) */}
       {misRestaurantes.length > 0 && (
@@ -147,8 +184,8 @@ export const BuscadorRestaurantes = () => {
               <p style={styles.empty}>No encontramos restaurantes con "{busqueda}".</p>
             ) : (
               filtrados.map(r => {
-                const inscrito = !!(misInscripciones[r.nombre] || misInscripciones[r.id]);
-                const datos    = inscrito ? datosPorSede[r.id] : null;
+                const datos    = datosPorSede[r.id];
+                const inscrito = !!datos;
                 const nivel    = datos ? calcularNivel(datos.ciclos) : null;
                 return (
                   <button key={r.id} onClick={() => irA(r.nombre)}
@@ -164,9 +201,7 @@ export const BuscadorRestaurantes = () => {
                             <span style={styles.badge}>{nivel.emoji} {nivel.label} · {datos.puntos} pts</span>
                           </div>
                         ) : (
-                          <div style={styles.cardHint}>
-                            {inscrito ? '✓ Ya inscrito' : 'Toca para inscribirte'}
-                          </div>
+                          <div style={styles.cardHint}>Toca para inscribirte</div>
                         )}
                       </div>
                     </div>
@@ -179,7 +214,7 @@ export const BuscadorRestaurantes = () => {
         )}
       </section>
 
-      <footer style={styles.footer}>Bistro Connect v2.8</footer>
+      <footer style={styles.footer}>Bistro Connect v2.9</footer>
     </div>
   );
 };
@@ -197,6 +232,35 @@ const styles = {
     width: '100%',
   },
   header:    { textAlign: 'center' },
+  profileBtn: {
+    background: 'var(--bg-card)',
+    border: '1px solid var(--border)',
+    borderRadius: '50%',
+    width: 36, height: 36,
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    fontSize: '1rem', cursor: 'pointer', flexShrink: 0,
+  },
+  profilePanel: {
+    background: 'var(--bg-card)',
+    border: '1px solid var(--border)',
+    borderRadius: 'var(--r-md)',
+    padding: '0.75rem 1rem',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: '0.75rem',
+  },
+  logoutBtn: {
+    background: 'transparent',
+    border: '1px solid var(--coral)',
+    color: 'var(--coral)',
+    borderRadius: 'var(--r-sm)',
+    padding: '6px 12px',
+    fontSize: '0.75rem',
+    fontWeight: 700,
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
+  },
   title: {
     fontFamily: 'var(--font-display)',
     fontSize: '1.9rem',

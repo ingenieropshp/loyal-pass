@@ -247,9 +247,11 @@ function App() {
   // no intente reabrir el dashboard con un clienteId huérfano.
   const handleLogout = async () => {
     await supabase.auth.signOut();
-    const registros = JSON.parse(localStorage.getItem('bistro_multisede') || '{}');
-    delete registros[restauranteID];
-    localStorage.setItem('bistro_multisede', JSON.stringify(registros));
+    // Como ahora la cuenta es global (una sola sesión para todos los
+    // restaurantes), al cerrar sesión limpiamos el mapa completo en vez de
+    // solo la sede actual — si no, "Mis restaurantes" en el buscador
+    // seguiría mostrando sedes de la cuenta anterior tras un cambio de usuario.
+    localStorage.removeItem('bistro_multisede');
     setClienteId(null);
     setNombreCliente('');
     setPuntosCliente(0);
@@ -257,9 +259,17 @@ function App() {
     // `session` se actualiza solo vía onAuthStateChange (evento SIGNED_OUT).
   };
 
-  // ── QR GENERAL → Buscador de restaurantes ────────────────────────────────
-  if (!restauranteID) {
-    return <BuscadorRestaurantes />;
+  // ── Pantalla de carga inicial (verificando si hay sesión guardada) ────────
+  // Va primero que cualquier otra cosa: sin esto, por una fracción de
+  // segundo se alcanzaría a mostrar el buscador o el AuthScreen de más,
+  // antes de saber si el usuario ya tenía sesión persistida.
+  if (!sessionLoaded) {
+    return (
+      <div className="main-wrapper" style={{ justifyContent: 'center', gap: '1rem' }}>
+        <div className="loader-spinner" />
+        <p style={{ fontSize: '0.8rem', opacity: 0.5, letterSpacing: '0.04em' }}>Verificando cuenta…</p>
+      </div>
+    );
   }
 
   // ── Recuperación de contraseña: tiene prioridad sobre cualquier otra pantalla ──
@@ -274,6 +284,47 @@ function App() {
         />
       </div>
     );
+  }
+
+  // ── GATE GLOBAL: sin cuenta unificada no se ve ni el buscador ni una sede ──
+  // Este es el cambio central del flujo nuevo: antes, cada restaurante tenía
+  // su propio formulario de registro. Ahora la cuenta (Supabase Auth) es
+  // ÚNICA y global — se crea/inicia sesión UNA sola vez, antes de llegar a
+  // "Descubre restaurantes".
+  //
+  // Si el usuario entró por un link directo de un restaurante (?r=...) y
+  // aún no tiene sesión, seguimos esperando (spinner) a que `bistroLoc`
+  // termine de cargar para poder pasarle `restaurantId` al AuthScreen — así,
+  // en cuanto cree su cuenta, queda inscrito automáticamente en ESE
+  // restaurante en el mismo paso (sin perder el contexto del link/QR que
+  // escaneó). Si entró por la raíz (sin ?r=), restaurantId simplemente
+  // queda null: el AuthScreen solo crea la cuenta, sin inscribirlo en nada.
+  if (!session?.user) {
+    if (restauranteID && (isVerifyingUser || !bistroLoc) && !sedeNoEncontrada) {
+      return (
+        <div className="main-wrapper" style={{ justifyContent: 'center', gap: '1rem' }}>
+          <div className="loader-spinner" />
+          <p style={{ fontSize: '0.8rem', opacity: 0.5, letterSpacing: '0.04em' }}>Cargando…</p>
+        </div>
+      );
+    }
+    return (
+      <div className="main-wrapper" style={{ justifyContent: 'center', padding: '2rem 1rem' }}>
+        <header style={{ textAlign: 'center', margin: '0.5rem 0 1.5rem', width: '100%' }}>
+          <h1 className="bistro-title">Bistro Connect<span className="dot">.</span></h1>
+        </header>
+        <AuthScreen
+          restaurantId={sedeNoEncontrada ? null : bistroLoc?.restaurante_id}
+          referidoPor={referidoPor}
+          onSuccess={handleSuccess}
+        />
+      </div>
+    );
+  }
+
+  // ── Ya autenticado, sin ?r= en la URL → buscador de restaurantes ─────────
+  if (!restauranteID) {
+    return <BuscadorRestaurantes session={session} onLogout={handleLogout} />;
   }
 
   // ── Sede no encontrada ───────────────────────────────────────────────────
@@ -291,12 +342,12 @@ function App() {
   }
 
   // ── Pantalla de carga ─────────────────────────────────────────────────────
-  if (!sessionLoaded || isVerifyingUser || !bistroLoc) {
+  if (isVerifyingUser || !bistroLoc) {
     return (
       <div className="main-wrapper" style={{ justifyContent: 'center', gap: '1rem' }}>
         <div className="loader-spinner" />
         <p style={{ fontSize: '0.8rem', opacity: 0.5, letterSpacing: '0.04em' }}>
-          {isVerifyingUser || !sessionLoaded ? 'Verificando cuenta…' : `Sincronizando con ${restauranteID}…`}
+          {isVerifyingUser ? 'Verificando cuenta…' : `Sincronizando con ${restauranteID}…`}
         </p>
       </div>
     );

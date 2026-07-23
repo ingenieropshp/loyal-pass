@@ -136,15 +136,23 @@ export const AuthScreen = ({ restaurantId, referidoPor, onSuccess, recoveryMode 
         return;
       }
 
-      // 3) Si NO hay confirmación de email requerida, ya tenemos sesión:
-      //    vinculamos de inmediato al cliente con este restaurante y
-      //    avisamos a App.jsx (misma firma que usaba RegistrationForm).
-      const { cliente } = await vincularClienteConRestaurante({
-        user: data.user,
-        restauranteId: restaurantId,
-        referidoPor,
-      });
-      onSuccess?.(cliente.id, cliente.nombre, cliente.puntos);
+      // 3) Si NO hay confirmación de email requerida, ya tenemos sesión.
+      //    Si esta pantalla tiene un `restaurantId` (el usuario entró por el
+      //    link/QR de una sede específica), lo inscribimos de una vez ahí y
+      //    avisamos a App.jsx (misma firma que usaba RegistrationForm) para
+      //    que muestre la bienvenida con los puntos ganados.
+      //    Si NO hay restaurantId (alta desde el gate global, antes del
+      //    buscador), no hay nada más que hacer: la cuenta ya quedó creada
+      //    y App.jsx detecta la sesión nueva solo, vía onAuthStateChange,
+      //    y navega al buscador de restaurantes.
+      if (restaurantId) {
+        const { cliente } = await vincularClienteConRestaurante({
+          user: data.user,
+          restauranteId: restaurantId,
+          referidoPor,
+        });
+        onSuccess?.(cliente.id, cliente.nombre, cliente.puntos);
+      }
     } catch (err) {
       console.error('[AuthScreen] Error en registro:', err);
       setMensaje({ tipo: 'error', texto: 'Hubo un problema al crear tu cuenta. Intenta de nuevo.' });
@@ -244,7 +252,9 @@ export const AuthScreen = ({ restaurantId, referidoPor, onSuccess, recoveryMode 
         </h2>
         <p style={styles.subtitle}>
           {modo === 'login'    && '¿Ya tienes cuenta? Ingresa con tu teléfono.'}
-          {modo === 'register' && 'Regístrate hoy y gana tus primeros 2 puntos'}
+          {modo === 'register' && (restaurantId
+            ? 'Regístrate hoy y gana tus primeros 2 puntos'
+            : 'Crea tu cuenta única para todos los restaurantes')}
           {modo === 'reset'    && 'Te enviaremos un link a tu correo'}
           {modo === 'recovery' && 'Elige una nueva contraseña para tu cuenta'}
         </p>
