@@ -8,9 +8,40 @@ if (!supabaseUrl || !supabaseAnonKey) {
   console.error("❌ Error: Faltan las variables de entorno de Supabase.");
 }
 
+// ── "Mantener sesión iniciada" ──────────────────────────────────────────────
+// Supabase solo permite configurar el storage UNA vez, al crear el cliente
+// (no se puede cambiar por-login). Para que el checkbox del login decida
+// entre localStorage (sesión persistente) y sessionStorage (se borra al
+// cerrar la pestaña), usamos un storage "proxy": Supabase le pide que
+// guarde/lea el token, y él revisa esta preferencia para decidir a cuál de
+// los dos storages reales escribir.
+const CLAVE_PREFERENCIA_SESION = 'bistro_mantener_sesion';
+
+export const establecerPreferenciaSesion = (mantener) => {
+  window.localStorage.setItem(CLAVE_PREFERENCIA_SESION, mantener ? 'true' : 'false');
+};
+
+const storageDinamico = {
+  getItem: (key) => window.localStorage.getItem(key) ?? window.sessionStorage.getItem(key),
+  setItem: (key, value) => {
+    const mantenerSesion = window.localStorage.getItem(CLAVE_PREFERENCIA_SESION) !== 'false';
+    if (mantenerSesion) {
+      window.localStorage.setItem(key, value);
+      window.sessionStorage.removeItem(key);
+    } else {
+      window.sessionStorage.setItem(key, value);
+      window.localStorage.removeItem(key);
+    }
+  },
+  removeItem: (key) => {
+    window.localStorage.removeItem(key);
+    window.sessionStorage.removeItem(key);
+  },
+};
+
 // ── Configuración explícita de persistencia de sesión ──────────────────────
-// persistSession: true      → guarda el token en localStorage (así el login
-//                              sobrevive a cerrar/reabrir el navegador o la PWA).
+// persistSession: true      → guarda el token (en localStorage o sessionStorage,
+//                              según storageDinamico de arriba).
 // autoRefreshToken: true    → renueva el token automáticamente antes de que
 //                              expire, sin pedirle nada al usuario.
 // detectSessionInUrl: true  → necesario para el flujo de "recuperar contraseña":
@@ -23,6 +54,7 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     persistSession: true,
     autoRefreshToken: true,
     detectSessionInUrl: true,
+    storage: storageDinamico,
   },
 });
 
@@ -64,26 +96,12 @@ export const addData = async (table, data) => {
 };
 
 /**
- * obtenerEmailPorTelefono
- * ────────────────────────────────────────────────────────────────────────
- * Dado un número de teléfono, devuelve el email de la cuenta asociada
- * (o null si ese teléfono no tiene cuenta creada todavía).
- * Internamente llama a la función SQL `obtener_email_por_telefono`
- * (ver migración 20260723000000_client_auth_persistente.sql) en vez de
- * consultar la tabla `clientes` directamente, para no exponer el resto
- * de columnas de esa tabla a un usuario que aún no inició sesión.
- * Se usa en AuthScreen.jsx dentro del flujo "Ingresar con Teléfono".
+ * NOTA: la función obtenerEmailPorTelefono() se eliminó de aquí — el login
+ * ahora es directo con supabase.auth.signInWithPassword({ email, password }),
+ * ya no hace falta traducir teléfono → email primero. Si quieres borrar
+ * también la función SQL `obtener_email_por_telefono` del lado de Supabase
+ * porque ya no la llama nadie, puedes hacerlo, pero dejarla ahí no hace daño.
  */
-export const obtenerEmailPorTelefono = async (telefono) => {
-  const { data, error } = await supabase.rpc('obtener_email_por_telefono', {
-    p_telefono: telefono.trim(),
-  });
-  if (error) {
-    console.error('🔴 Error buscando email por teléfono:', error.message);
-    throw error;
-  }
-  return data; // string (email) o null
-};
 
 /**
  * vincularClienteConRestaurante
@@ -116,8 +134,11 @@ export const vincularClienteConRestaurante = async ({
   restauranteId,
   referidoPor,
 }) => {
-  const nombre   = user.user_metadata?.nombre   || 'Cliente';
-  const telefono = user.user_metadata?.telefono || '';
+  const nombre   = user.user_metadata?.nombre || 'Cliente';
+  // El teléfono es obligatorio en el registro (AuthScreen lo valida antes de
+  // llamar signUp) y viaja en user_metadata; solo queda null para cuentas
+  // muy viejas que se hayan creado antes de este cambio.
+  const telefono = user.user_metadata?.telefono || null;
 
   // a) ¿Ya vinculado a este restaurante?
   const { data: existentePorAuth, error: errorAuth } = await supabase

@@ -1,14 +1,13 @@
 import { useState } from 'react';
-import { supabase, obtenerEmailPorTelefono, vincularClienteConRestaurante } from '../services/supabaseClient';
+import { supabase, establecerPreferenciaSesion, vincularClienteConRestaurante } from '../services/supabaseClient';
 
 /**
  * AuthScreen — reemplaza al antiguo RegistrationForm como puerta de entrada
  * a la app. Maneja 3 flujos (más un 4to interno de recuperación):
  *
- *   'login'    → Teléfono + Contraseña (para el usuario que reinstaló la app
- *                y perdió su sesión guardada en localStorage).
- *   'register' → Nombre + Teléfono + Email + Contraseña (crea una cuenta
- *                real en Supabase Auth y la vincula a este restaurante).
+ *   'login'    → Correo + Contraseña (autenticación directa contra Supabase Auth).
+ *   'register' → Nombre + Teléfono (obligatorio) + Email + Contraseña (crea una
+ *                cuenta real en Supabase Auth y la vincula a este restaurante).
  *   'reset'    → Recuperar contraseña por email (supabase.auth.resetPasswordForEmail).
  *
  * Props:
@@ -36,40 +35,34 @@ export const AuthScreen = ({ restaurantId, referidoPor, onSuccess, recoveryMode 
   const [email,    setEmail]    = useState('');
   const [password, setPassword] = useState('');
   const [password2, setPassword2] = useState(''); // confirmación (registro y recovery)
+  const [mantenerSesion, setMantenerSesion] = useState(true); // checkbox "Mantener sesión iniciada"
 
   const limpiarMensaje = () => setMensaje(null);
 
-  // ── LOGIN: Teléfono + Contraseña ──────────────────────────────────────
+  // ── LOGIN: Correo + Contraseña ─────────────────────────────────────────
   const handleLogin = async (e) => {
     e.preventDefault();
     if (loading) return;
     limpiarMensaje();
 
-    if (!telefono.trim() || !password) {
-      setMensaje({ tipo: 'error', texto: 'Completa tu teléfono y contraseña.' });
+    if (!email.trim() || !password) {
+      setMensaje({ tipo: 'error', texto: 'Completa tu correo y contraseña.' });
       return;
     }
 
     setLoading(true);
     try {
-      // 1) El teléfono no es el identificador de Supabase Auth: primero
-      //    buscamos qué email tiene asociado esa cuenta.
-      const emailAsociado = await obtenerEmailPorTelefono(telefono.trim());
-      if (!emailAsociado) {
-        setMensaje({
-          tipo: 'error',
-          texto: 'No encontramos una cuenta con ese teléfono. ¿Ya creaste tu cuenta?',
-        });
-        return;
-      }
+      // Antes de autenticar, guardamos la preferencia de "mantener sesión":
+      // el storage adapter de supabaseClient.js la lee justo cuando Supabase
+      // guarda el token nuevo, y decide entre localStorage o sessionStorage.
+      establecerPreferenciaSesion(mantenerSesion);
 
-      // 2) Con el email real, hacemos el login estándar de Supabase Auth.
       const { error } = await supabase.auth.signInWithPassword({
-        email: emailAsociado,
+        email: email.trim().toLowerCase(),
         password,
       });
       if (error) {
-        setMensaje({ tipo: 'error', texto: 'Contraseña incorrecta. Intenta de nuevo.' });
+        setMensaje({ tipo: 'error', texto: 'Correo o contraseña incorrectos. Intenta de nuevo.' });
         return;
       }
       // No hace falta hacer nada más aquí: App.jsx escucha
@@ -84,7 +77,7 @@ export const AuthScreen = ({ restaurantId, referidoPor, onSuccess, recoveryMode 
     }
   };
 
-  // ── REGISTRO: Nombre + Teléfono + Email + Contraseña ──────────────────
+  // ── REGISTRO: Nombre + Correo + Contraseña ─────────────────────────────
   const handleRegister = async (e) => {
     e.preventDefault();
     if (loading) return;
@@ -94,6 +87,10 @@ export const AuthScreen = ({ restaurantId, referidoPor, onSuccess, recoveryMode 
       setMensaje({ tipo: 'error', texto: 'Completa todos los campos.' });
       return;
     }
+    if (!/^\d{10}$/.test(telefono.trim())) {
+      setMensaje({ tipo: 'error', texto: 'El teléfono debe tener 10 dígitos, ej: 3206587850.' });
+      return;
+    }
     if (password.length < 6) {
       setMensaje({ tipo: 'error', texto: 'La contraseña debe tener al menos 6 caracteres.' });
       return;
@@ -101,11 +98,15 @@ export const AuthScreen = ({ restaurantId, referidoPor, onSuccess, recoveryMode 
 
     setLoading(true);
     try {
+      establecerPreferenciaSesion(mantenerSesion);
+
       // 1) Crear la cuenta en Supabase Auth. Guardamos nombre y teléfono en
       //    los metadatos del usuario (user_metadata) para poder usarlos
-      //    después al crear su fila en `clientes` sin volver a pedirlos.
+      //    después al crear su fila en `clientes`, sin volver a pedirlos.
+      //    El teléfono es obligatorio: es el dato con el que el restaurante
+      //    (mesero/admin) identifica al cliente en caja.
       const { data, error } = await supabase.auth.signUp({
-        email: email.trim(),
+        email: email.trim().toLowerCase(),
         password,
         options: {
           data: { nombre: nombre.trim(), telefono: telefono.trim() },
@@ -179,7 +180,7 @@ export const AuthScreen = ({ restaurantId, referidoPor, onSuccess, recoveryMode 
       // (incluye ?r= del restaurante) para que, al volver, App.jsx detecte
       // el evento PASSWORD_RECOVERY y muestre el formulario de "nueva
       // contraseña" sin perder el contexto del restaurante.
-      const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+      const { error } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase(), {
         redirectTo: window.location.href,
       });
       if (error) {
@@ -236,6 +237,7 @@ export const AuthScreen = ({ restaurantId, referidoPor, onSuccess, recoveryMode 
   const cambiarModo = (nuevoModo) => {
     setModo(nuevoModo);
     limpiarMensaje();
+    setTelefono('');
     setPassword('');
     setPassword2('');
   };
@@ -251,7 +253,7 @@ export const AuthScreen = ({ restaurantId, referidoPor, onSuccess, recoveryMode 
           {modo === 'recovery' && 'Nueva contraseña'}
         </h2>
         <p style={styles.subtitle}>
-          {modo === 'login'    && '¿Ya tienes cuenta? Ingresa con tu teléfono.'}
+          {modo === 'login'    && '¿Ya tienes cuenta? Ingresa con tu correo.'}
           {modo === 'register' && (restaurantId
             ? 'Regístrate hoy y gana tus primeros 2 puntos'
             : 'Crea tu cuenta única para todos los restaurantes')}
@@ -271,16 +273,21 @@ export const AuthScreen = ({ restaurantId, referidoPor, onSuccess, recoveryMode 
       {modo === 'login' && (
         <form onSubmit={handleLogin}>
           <div style={styles.field}>
-            <label style={styles.label} htmlFor="loginTelefono">Teléfono / WhatsApp</label>
-            <input id="loginTelefono" type="tel" required placeholder="Ej: 3206587850"
-              style={styles.input} value={telefono} onChange={(e) => setTelefono(e.target.value)} />
+            <label style={styles.label} htmlFor="loginEmail">Correo electrónico</label>
+            <input id="loginEmail" type="email" required autoComplete="email" placeholder="ejemplo@correo.com"
+              style={styles.input} value={email} onChange={(e) => setEmail(e.target.value)} />
           </div>
-          <div style={{ ...styles.field, marginBottom: '1.25rem' }}>
+          <div style={{ ...styles.field, marginBottom: '0.85rem' }}>
             <label style={styles.label} htmlFor="loginPassword">Contraseña</label>
-            <input id="loginPassword" type="password" required placeholder="••••••••"
+            <input id="loginPassword" type="password" required autoComplete="current-password" placeholder="••••••••"
               style={styles.input} value={password} onChange={(e) => setPassword(e.target.value)} />
           </div>
-          <button type="submit" disabled={loading} style={{ ...styles.btnJoin, opacity: loading ? 0.75 : 1 }}>
+          <label style={styles.checkboxRow}>
+            <input type="checkbox" checked={mantenerSesion}
+              onChange={(e) => setMantenerSesion(e.target.checked)} style={styles.checkbox} />
+            Mantener sesión iniciada
+          </label>
+          <button type="submit" disabled={loading} style={{ ...styles.btnJoin, opacity: loading ? 0.75 : 1, marginTop: 16 }}>
             {loading ? 'Ingresando…' : 'Ingresar →'}
           </button>
           <p style={styles.linkRow}>
@@ -305,15 +312,20 @@ export const AuthScreen = ({ restaurantId, referidoPor, onSuccess, recoveryMode 
           </div>
           <div style={styles.field}>
             <label style={styles.label} htmlFor="regEmail">Correo electrónico</label>
-            <input id="regEmail" type="email" required placeholder="tucorreo@ejemplo.com"
+            <input id="regEmail" type="email" required autoComplete="email" placeholder="ejemplo@correo.com"
               style={styles.input} value={email} onChange={(e) => setEmail(e.target.value)} />
           </div>
-          <div style={{ ...styles.field, marginBottom: '1.25rem' }}>
+          <div style={{ ...styles.field, marginBottom: '0.85rem' }}>
             <label style={styles.label} htmlFor="regPassword">Contraseña</label>
-            <input id="regPassword" type="password" required minLength={6} placeholder="Mínimo 6 caracteres"
+            <input id="regPassword" type="password" required minLength={6} autoComplete="new-password" placeholder="Mínimo 6 caracteres"
               style={styles.input} value={password} onChange={(e) => setPassword(e.target.value)} />
           </div>
-          <button type="submit" disabled={loading} style={{ ...styles.btnJoin, opacity: loading ? 0.75 : 1 }}>
+          <label style={styles.checkboxRow}>
+            <input type="checkbox" checked={mantenerSesion}
+              onChange={(e) => setMantenerSesion(e.target.checked)} style={styles.checkbox} />
+            Mantener sesión iniciada
+          </label>
+          <button type="submit" disabled={loading} style={{ ...styles.btnJoin, opacity: loading ? 0.75 : 1, marginTop: 16 }}>
             {loading ? 'Procesando…' : 'Unirme al club →'}
           </button>
           <p style={styles.linkRow}>
