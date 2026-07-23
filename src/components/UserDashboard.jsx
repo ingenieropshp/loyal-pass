@@ -142,14 +142,14 @@ export const UserDashboard = ({
     try {
       return await obtenerPosicion({
         enableHighAccuracy: true,
-        timeout: 5000,
-        maximumAge: 10000,
+        timeout: 6000,
+        maximumAge: 15000,
       });
     } catch (err) {
       if (err.code === 1) throw err; // permiso denegado: no reintentar
       return await obtenerPosicion({
         enableHighAccuracy: false,
-        timeout: 10000,
+        timeout: 12000,
         maximumAge: 60000,
       });
     }
@@ -176,10 +176,13 @@ export const UserDashboard = ({
       if (restData.puntos_llegada) setPuntosLlegada(restData.puntos_llegada);
       if (restData.meta_puntos)    setMetaPuntos(restData.meta_puntos);
 
-      // Red de seguridad: si tras 12s no hay ni éxito ni error, forzamos el rechazo
-      // para que el botón NUNCA se quede colgado, sin importar el navegador.
+      // Red de seguridad: si tras 20s no hay ni éxito ni error, forzamos el
+      // rechazo para que el botón NUNCA se quede colgado. 20s = margen real
+      // para cubrir intento 1 (6s) + intento 2 (12s) sin cortar el fallback
+      // de baja precisión antes de que termine (eso causaba falsos "no se
+      // pudo obtener tu ubicación" estando dentro del rango).
       const timeoutDuro = new Promise((_, reject) =>
-        setTimeout(() => reject({ code: 'TIMEOUT_DURO' }), 12000)
+        setTimeout(() => reject({ code: 'TIMEOUT_DURO' }), 20000)
       );
 
       let pos;
@@ -192,10 +195,17 @@ export const UserDashboard = ({
             'Ve a Configuración del navegador → Privacidad → Ubicación\n' +
             'y permite el acceso para este sitio.'
           );
+        } else if (err.code === 2) {
+          alert(
+            '📡 Tu teléfono no pudo obtener una señal de ubicación.\n' +
+            'Revisa que la Ubicación esté activada en Ajustes del sistema ' +
+            '(no solo el permiso del navegador) y que no esté en modo ahorro de batería.'
+          );
         } else {
           alert(
-            '📡 No se pudo obtener tu ubicación.\n' +
-            'Asegúrate de tener GPS o WiFi activos e inténtalo de nuevo.'
+            '⏱️ Se tardó demasiado en obtener tu ubicación.\n' +
+            'Puede pasar por señal débil dentro del local.\n\n' +
+            'Toca el botón de nuevo para intentarlo otra vez.'
           );
         }
         return;
