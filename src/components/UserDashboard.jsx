@@ -24,11 +24,13 @@ export const UserDashboard = ({
   nombreRestaurante,
   distancia,        // ← NUEVO: metros desde App.jsx (se actualiza con watchPosition)
   esCerca: inicialEsCerca,
+  onLogout,          // ← NUEVO: función de App.jsx para cerrar sesión (supabase.auth.signOut)
 }) => {
   const [cliente,        setCliente]        = useState(null);
   const [procesando,     setProcesando]     = useState(false);
   const [esCerca,        setEsCerca]        = useState(inicialEsCerca || false);
   const [mostrarPin,     setMostrarPin]     = useState(false);
+  const [mostrarPerfil,  setMostrarPerfil]  = useState(false); // panel de "Perfil / Cerrar sesión"
   const [pinIngresado,   setPinIngresado]   = useState('');
   const [puntosLlegada,  setPuntosLlegada]  = useState(2);
   const [metaPuntos,     setMetaPuntos]     = useState(20);
@@ -335,9 +337,69 @@ export const UserDashboard = ({
         puntosTotales={puntos}
       />
 
-      {/* Header nombre */}
-      <div className="dash-welcome">Hola de nuevo,</div>
-      <div className="dash-name">{cliente.nombre?.toUpperCase()}</div>
+      {/* Header nombre + acceso a perfil/configuración */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', width: '100%' }}>
+        <div>
+          <div className="dash-welcome">Hola de nuevo,</div>
+          <div className="dash-name">{cliente.nombre?.toUpperCase()}</div>
+        </div>
+        {onLogout && (
+          <button
+            onClick={() => setMostrarPerfil(v => !v)}
+            aria-label="Perfil y configuración"
+            style={{
+              background: 'var(--bg-subtle)',
+              border: '1px solid var(--border)',
+              borderRadius: '50%',
+              width: 36, height: 36,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: '1rem', cursor: 'pointer', flexShrink: 0,
+            }}
+          >
+            ⚙️
+          </button>
+        )}
+      </div>
+
+      {/* Panel de perfil / configuración (solo "Cerrar sesión" por ahora) */}
+      {mostrarPerfil && onLogout && (
+        <div style={{
+          width: '100%',
+          background: 'var(--bg-subtle)',
+          border: '1px solid var(--border)',
+          borderRadius: 'var(--r-md)',
+          padding: '0.75rem 1rem',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '0.75rem',
+        }}>
+          <span style={{ fontSize: '0.8rem', color: 'var(--text)', opacity: 0.75 }}>
+            {cliente.email || cliente.telefono}
+          </span>
+          <button
+            onClick={() => {
+              // Confirmación simple para evitar cierres de sesión accidentales.
+              if (window.confirm('¿Cerrar sesión? Podrás volver a ingresar con tu teléfono y contraseña.')) {
+                onLogout();
+              }
+            }}
+            style={{
+              background: 'transparent',
+              border: '1px solid var(--coral)',
+              color: 'var(--coral)',
+              borderRadius: 'var(--r-sm)',
+              padding: '6px 12px',
+              fontSize: '0.75rem',
+              fontWeight: 700,
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            Cerrar sesión
+          </button>
+        </div>
+      )}
 
       {/* Cupones activos (premio por visitas + canjes del catálogo) */}
       {cupones.map(cupon => {

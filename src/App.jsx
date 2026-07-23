@@ -1,11 +1,11 @@
 import { useState, useEffect, useMemo } from 'react';
 import { GeofencingProvider } from './components/GeofencingProvider';
-import { RegistrationForm } from './components/RegistrationForm';
+import { AuthScreen }       from './components/AuthScreen';
 import { SuccessCard }      from './components/manejarRegistro';
 import { UserDashboard }    from './components/UserDashboard';
 import { BuscadorRestaurantes } from './components/BuscadorRestaurantes';
 import { useLocation }      from './hooks/useLocation';
-import { supabase }         from './services/supabaseClient';
+import { supabase, vincularClienteConRestaurante } from './services/supabaseClient';
 import './App.css';
 
 function App() {
@@ -14,6 +14,18 @@ function App() {
   // Si NO viene ?r=, mostramos el buscador global de restaurantes.
   const rRaw = params.get('r');
   const restauranteID = rRaw ? decodeURIComponent(rRaw).trim() : null;
+
+  // ── Sesión persistente de Supabase Auth ───────────────────────────────
+  // `session` es null mientras no sabemos si hay un login guardado, y
+  // pasa a `undefined` intencionalmente nunca: solo null (sin sesión) u
+  // objeto de sesión. `sessionLoaded` distingue "todavía no verificamos"
+  // de "ya verificamos y no hay sesión", para no mostrar pantallas de
+  // login/registro de golpe mientras se resuelve el getSession() inicial.
+  const [session,           setSession]           = useState(null);
+  const [sessionLoaded,     setSessionLoaded]      = useState(false);
+  // Se activa cuando el usuario vuelve del link de "recuperar contraseña"
+  // de su correo (evento PASSWORD_RECOVERY de Supabase Auth).
+  const [passwordRecovery,  setPasswordRecovery]   = useState(false);
 
   const [clienteId,       setClienteId]       = useState(() => {
     if (!restauranteID) return null;
@@ -27,6 +39,33 @@ function App() {
   const [referidoPor,     setReferidoPor]      = useState('');
   const [bistroLoc,       setBistroLoc]        = useState(null);
   const [sedeNoEncontrada, setSedeNoEncontrada] = useState(false);
+
+  // ── Cargar sesión guardada + escuchar cambios de autenticación ─────────
+  // getSession() lee el token que quedó en localStorage de una visita
+  // anterior (si existe) y lo valida. onAuthStateChange se dispara cada
+  // vez que el usuario inicia sesión, cierra sesión, o Supabase renueva
+  // el token — así toda la app se mantiene sincronizada con el estado
+  // real de autenticación sin tener que revisarlo manualmente en cada
+  // componente.
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session: s } }) => {
+      setSession(s);
+      setSessionLoaded(true);
+    });
+
+    const { data: listener } = supabase.auth.onAuthStateChange((event, s) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        // El usuario volvió del correo de recuperación: Supabase ya creó
+        // una sesión temporal para permitirle cambiar la contraseña.
+        setPasswordRecovery(true);
+      }
+      setSession(s);
+      setSessionLoaded(true);
+    });
+
+    // Al desmontar, cancelamos la suscripción para no acumular listeners.
+    return () => listener.subscription.unsubscribe();
+  }, []);
 
   useEffect(() => {
     const ref = params.get('ref');
@@ -50,7 +89,32 @@ function App() {
           return;
         }
 
-        if (clienteId) {
+        // ── Identificar al cliente ────────────────────────────────────
+        // Prioridad 1: si hay sesión de Supabase Auth activa (login
+        //   persistente), esa es la fuente de verdad — buscamos/creamos
+        //   su fila de cliente para ESTA sede vía vincularClienteConRestaurante.
+        // Prioridad 2 (compatibilidad hacia atrás): si no hay sesión pero
+        //   sí hay un clienteId guardado en localStorage (usuarios que se
+        //   registraron antes de esta actualización, con el formulario
+        //   rápido sin cuenta), seguimos verificándolo como antes.
+        if (session?.user) {
+          const { cliente, esNuevoRegistro } = await vincularClienteConRestaurante({
+            user: session.user,
+            restauranteId: sede.id,
+            referidoPor,
+          });
+          const registros = JSON.parse(localStorage.getItem('bistro_multisede') || '{}');
+          registros[restauranteID] = cliente.id;
+          localStorage.setItem('bistro_multisede', JSON.stringify(registros));
+
+          setClienteId(cliente.id);
+          setNombreCliente(cliente.nombre);
+          setPuntosCliente(cliente.puntos);
+          // Si es la primera vez que este cliente se une a ESTA sede,
+          // mostramos la pantalla de bienvenida con los puntos ganados,
+          // igual que ocurría con el registro rápido original.
+          if (esNuevoRegistro) setIsRegisteredNow(true);
+        } else if (clienteId) {
           const { data: userDB, error: errorUser } = await supabase
             .from('clientes').select('id, nombre, puntos')
             .eq('id', clienteId).maybeSingle();
@@ -78,17 +142,20 @@ function App() {
         setIsVerifyingUser(false);
       }
     };
-    inicializarDatos();
+    // Esperamos a que sessionLoaded sea true antes de decidir el camino
+    // (auth vs. localStorage), para no crear por error una fila duplicada
+    // en `clientes` mientras getSession() todavía está resolviendo.
+    if (sessionLoaded) inicializarDatos();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [restauranteID]);
+  }, [restauranteID, sessionLoaded, session?.user?.id]);
 
   useEffect(() => {
-    if (!restauranteID) return;
+    if (!restauranteID || session?.user) return; // con sesión, el efecto de arriba ya maneja el clienteId
     const registros    = JSON.parse(localStorage.getItem('bistro_multisede') || '{}');
     const idEnEstaSede = registros[restauranteID] || null;
     if (idEnEstaSede !== clienteId) setClienteId(idEnEstaSede);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [restauranteID]);
+  }, [restauranteID, session?.user]);
 
   // ── REALTIME: escuchar cambios de GPS/radio Y configuración en tiempo real ──
   useEffect(() => {
@@ -173,9 +240,40 @@ function App() {
     setIsRegisteredNow(true);
   };
 
+  // ── Cerrar sesión ─────────────────────────────────────────────────────
+  // Se pasa como prop a UserDashboard para el botón "Cerrar sesión" en el
+  // perfil/configuración. Además de cerrar la sesión de Supabase Auth,
+  // limpiamos el registro local de esta sede para que, al recargar, la app
+  // no intente reabrir el dashboard con un clienteId huérfano.
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    const registros = JSON.parse(localStorage.getItem('bistro_multisede') || '{}');
+    delete registros[restauranteID];
+    localStorage.setItem('bistro_multisede', JSON.stringify(registros));
+    setClienteId(null);
+    setNombreCliente('');
+    setPuntosCliente(0);
+    setIsRegisteredNow(false);
+    // `session` se actualiza solo vía onAuthStateChange (evento SIGNED_OUT).
+  };
+
   // ── QR GENERAL → Buscador de restaurantes ────────────────────────────────
   if (!restauranteID) {
     return <BuscadorRestaurantes />;
+  }
+
+  // ── Recuperación de contraseña: tiene prioridad sobre cualquier otra pantalla ──
+  if (passwordRecovery) {
+    return (
+      <div className="main-wrapper" style={{ justifyContent: 'center', padding: '2rem 1rem' }}>
+        <AuthScreen
+          restaurantId={bistroLoc?.restaurante_id}
+          referidoPor={referidoPor}
+          recoveryMode
+          onRecoveryDone={() => setPasswordRecovery(false)}
+        />
+      </div>
+    );
   }
 
   // ── Sede no encontrada ───────────────────────────────────────────────────
@@ -193,12 +291,12 @@ function App() {
   }
 
   // ── Pantalla de carga ─────────────────────────────────────────────────────
-  if (isVerifyingUser || !bistroLoc) {
+  if (!sessionLoaded || isVerifyingUser || !bistroLoc) {
     return (
       <div className="main-wrapper" style={{ justifyContent: 'center', gap: '1rem' }}>
         <div className="loader-spinner" />
         <p style={{ fontSize: '0.8rem', opacity: 0.5, letterSpacing: '0.04em' }}>
-          {isVerifyingUser ? 'Verificando cuenta…' : `Sincronizando con ${restauranteID}…`}
+          {isVerifyingUser || !sessionLoaded ? 'Verificando cuenta…' : `Sincronizando con ${restauranteID}…`}
         </p>
       </div>
     );
@@ -298,9 +396,10 @@ function App() {
             distancia={distancia}
             esCerca={esCerca}
             nombreRestaurante={config.nombreBistro}
+            onLogout={handleLogout}
           />
         ) : (
-          <RegistrationForm
+          <AuthScreen
             restaurantId={bistroLoc.restaurante_id}
             referidoPor={referidoPor}
             onSuccess={handleSuccess}
@@ -309,7 +408,7 @@ function App() {
       </main>
 
       <footer className="version-footer">
-        Bistro Connect v2.8 · {config.nombreBistro}
+        Bistro Connect v2.9 · {config.nombreBistro}
       </footer>
     </div>
   );
