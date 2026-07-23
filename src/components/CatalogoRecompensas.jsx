@@ -169,9 +169,11 @@ export function ModalCanje({ recompensa, clienteId, puntosActuales, onExito, onC
     }
   };
 
+  // IMPORTANTE: los puntos ya NO se descuentan aquí. Se descuentan en el panel
+  // admin cuando el cajero confirma el código, así que la UI debe mostrar los
+  // mismos puntos que tenía antes — no restar nada todavía.
   const cerrarConExito = () => {
-    const nuevosPuntos = puntosActuales - recompensa.puntos_requeridos;
-    onExito?.(nuevosPuntos, recompensa, cuponGenerado);
+    onExito?.(puntosActuales, recompensa, cuponGenerado);
   };
 
   if (!recompensa) return null;
@@ -197,7 +199,8 @@ export function ModalCanje({ recompensa, clienteId, puntosActuales, onExito, onC
                 ¡Canje confirmado!
               </h3>
               <p style={{ margin: 0, color: 'var(--text)', opacity: 0.6, fontSize: '0.85rem' }}>
-                Muéstrale este código al mesero para reclamar tu {cuponGenerado.nombre}
+                Muéstrale este código al mesero para reclamar tu {cuponGenerado.nombre}.
+                Tus {recompensa.puntos_requeridos} pts se descuentan al confirmarlo en caja.
               </p>
             </div>
 
@@ -252,7 +255,7 @@ export function ModalCanje({ recompensa, clienteId, puntosActuales, onExito, onC
               padding: '12px 16px', marginBottom: 20, textAlign: 'center',
             }}>
               <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text)', opacity: 0.7 }}>
-                Se descontarán de tu cuenta
+                Se descontarán al confirmar tu código en caja
               </p>
               <p style={{ margin: '4px 0 0', fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: '1.5rem', color: 'var(--coral)' }}>
                 -{recompensa.puntos_requeridos} pts
