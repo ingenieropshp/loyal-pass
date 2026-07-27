@@ -104,53 +104,74 @@ export const addData = async (table, data) => {
  */
 
 /**
- * vincularClienteConRestaurante
+ * buscarClienteEnRestaurante
  * ────────────────────────────────────────────────────────────────────────
- * Punto único que conecta "un usuario de Supabase Auth ya autenticado" con
- * "una fila de la tabla clientes para UN restaurante en particular".
- * Se reutiliza en dos momentos distintos:
- *   1) Justo después de crear una cuenta nueva (AuthScreen → "Crear cuenta").
- *   2) Cuando la app detecta una sesión ya activa (persistida) y el usuario
- *      abre el enlace de un restaurante donde todavía no tenía fila creada
- *      (App.jsx). Esto cubre el caso "cliente multi-sede": mismo login,
- *      distinto restaurante.
+ * SOLO LECTURA — nunca crea ni modifica nada. Verifica si el usuario ya
+ * autenticado globalmente (auth_user_id) tiene una fila propia en
+ * `clientes` para ESTE restaurante en particular.
+ *
+ * Esto es lo que separa las dos etapas del registro: tener sesión global
+ * (Supabase Auth) NO implica estar inscrito en un restaurante — cada
+ * restaurante es una decisión aparte del usuario, tomada a través del
+ * formulario "Crea tu perfil" (ver registrarClienteEnRestaurante).
+ *
+ * Devuelve la fila { id, nombre, puntos } si existe, o null si el usuario
+ * todavía no se ha unido a ese restaurante.
+ */
+export const buscarClienteEnRestaurante = async ({ authUserId, restauranteId }) => {
+  const { data, error } = await supabase
+    .from('clientes')
+    .select('id, nombre, puntos')
+    .eq('auth_user_id', authUserId)
+    .eq('restaurante_id', restauranteId)
+    .maybeSingle();
+  if (error) throw error;
+  return data; // null → aún no inscrito en este restaurante
+};
+
+/**
+ * registrarClienteEnRestaurante
+ * ────────────────────────────────────────────────────────────────────────
+ * Inscribe al usuario autenticado globalmente en UN restaurante puntual.
+ * Se llama ÚNICAMENTE cuando el usuario llena y envía a propósito el
+ * formulario "Crea tu perfil" (RegistrationForm) — nunca de forma
+ * automática — para que tenga control total sobre en qué restaurantes se
+ * inscribe.
+ *
+ * Recibe los datos LOCALES del restaurante (nombre, teléfono, fecha de
+ * nacimiento) capturados en ese formulario, y los vincula al auth_id
+ * global de la cuenta ya autenticada.
  *
  * Lógica, en orden:
- *   a) ¿Ya existe una fila clientes con este auth_user_id en este
- *      restaurante? → la devolvemos tal cual, sin tocar puntos.
+ *   a) Por seguridad, si por alguna carrera de red ya existe una fila para
+ *      este mismo par (auth_user_id, restaurante_id), la devolvemos tal
+ *      cual en vez de duplicarla.
  *   b) ¿Existe una fila VIEJA (registro rápido pre-login) con el mismo
  *      teléfono en este restaurante, todavía sin auth_user_id? → la
- *      vinculamos (UPDATE) a esta cuenta en vez de duplicarla. Así no se
- *      pierden los puntos que el cliente ya había acumulado antes de crear
- *      su cuenta con contraseña.
+ *      vinculamos (UPDATE) a esta cuenta en vez de duplicarla, así no se
+ *      pierden los puntos que ya tenía acumulados antes de crear su cuenta.
  *   c) Si no existe ninguna → creamos una fila nueva con los 2 puntos de
- *      bienvenida, igual que hacía el formulario de registro original.
+ *      bienvenida.
  *
- * Devuelve { cliente, esNuevoRegistro } para que quien la llame sepa si
- * debe mostrar la pantalla de bienvenida (SuccessCard) con puntos nuevos.
+ * Devuelve la fila { id, nombre, puntos } recién vinculada o creada.
  */
-export const vincularClienteConRestaurante = async ({
-  user,            // objeto `user` de supabase.auth (ya autenticado)
+export const registrarClienteEnRestaurante = async ({
+  user,            // objeto `user` de supabase.auth (ya autenticado globalmente)
   restauranteId,
+  nombre,
+  telefono,
+  fechaNacimiento,
   referidoPor,
 }) => {
-  const nombre   = user.user_metadata?.nombre || 'Cliente';
-  // El teléfono es obligatorio en el registro (AuthScreen lo valida antes de
-  // llamar signUp) y viaja en user_metadata; solo queda null para cuentas
-  // muy viejas que se hayan creado antes de este cambio.
-  const telefono = user.user_metadata?.telefono || null;
-
-  // a) ¿Ya vinculado a este restaurante?
-  const { data: existentePorAuth, error: errorAuth } = await supabase
+  // a) ¿Ya vinculado a este restaurante? (evita duplicados por doble clic/carrera)
+  const { data: yaExiste, error: errorExiste } = await supabase
     .from('clientes')
     .select('id, nombre, puntos')
     .eq('auth_user_id', user.id)
     .eq('restaurante_id', restauranteId)
     .maybeSingle();
-  if (errorAuth) throw errorAuth;
-  if (existentePorAuth) {
-    return { cliente: existentePorAuth, esNuevoRegistro: false };
-  }
+  if (errorExiste) throw errorExiste;
+  if (yaExiste) return yaExiste;
 
   // b) ¿Fila vieja del registro rápido, mismo teléfono, sin auth todavía?
   if (telefono) {
@@ -166,12 +187,17 @@ export const vincularClienteConRestaurante = async ({
     if (existentePorTelefono) {
       const { data: vinculado, error: errorUpdate } = await supabase
         .from('clientes')
-        .update({ auth_user_id: user.id, email: user.email })
+        .update({
+          auth_user_id:     user.id,
+          email:            user.email,
+          nombre:           nombre || existentePorTelefono.nombre,
+          fecha_nacimiento: fechaNacimiento || null,
+        })
         .eq('id', existentePorTelefono.id)
         .select('id, nombre, puntos')
         .single();
       if (errorUpdate) throw errorUpdate;
-      return { cliente: vinculado, esNuevoRegistro: false };
+      return vinculado;
     }
   }
 
@@ -181,19 +207,20 @@ export const vincularClienteConRestaurante = async ({
     .insert([{
       nombre,
       telefono,
-      email:           user.email,
-      auth_user_id:    user.id,
-      puntos:          2,
-      origen:          'Registro Web (Cuenta)',
-      restaurante_id:  restauranteId,
-      referidopor:     referidoPor || 'Directo (QR local)',
-      fecha_registro:  new Date().toISOString(),
+      fecha_nacimiento: fechaNacimiento,
+      email:            user.email,
+      auth_user_id:     user.id,
+      puntos:           2,
+      origen:           'Registro Web (Cuenta)',
+      restaurante_id:   restauranteId,
+      referidopor:      referidoPor || 'Directo (QR local)',
+      fecha_registro:   new Date().toISOString(),
     }])
     .select('id, nombre, puntos')
     .single();
   if (errorInsert) throw errorInsert;
 
-  return { cliente: nuevoCliente, esNuevoRegistro: true };
+  return nuevoCliente;
 };
 
 export default supabase;

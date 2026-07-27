@@ -1,28 +1,37 @@
 import { useState } from 'react';
-import { supabase, establecerPreferenciaSesion, vincularClienteConRestaurante } from '../services/supabaseClient';
+import { supabase, establecerPreferenciaSesion } from '../services/supabaseClient';
 
 /**
- * AuthScreen — reemplaza al antiguo RegistrationForm como puerta de entrada
- * a la app. Maneja 3 flujos (más un 4to interno de recuperación):
+ * AuthScreen — puerta de entrada GLOBAL a la app (Etapa 1 del flujo).
+ * Maneja únicamente la cuenta única de Supabase Auth, identificada por
+ * correo electrónico — nunca pide ni guarda datos propios de un
+ * restaurante (nombre para el mesero, teléfono, fecha de nacimiento).
+ * Esos se piden después, por separado, en RegistrationForm ("Crea tu
+ * perfil"), la primera vez que el usuario elige unirse a un restaurante
+ * en concreto.
  *
+ * Maneja 3 flujos (más un 4to interno de recuperación):
  *   'login'    → Correo + Contraseña (autenticación directa contra Supabase Auth).
- *   'register' → Nombre + Teléfono (obligatorio) + Email + Contraseña (crea una
- *                cuenta real en Supabase Auth y la vincula a este restaurante).
+ *   'register' → Correo + Contraseña (crea la cuenta única y global).
  *   'reset'    → Recuperar contraseña por email (supabase.auth.resetPasswordForEmail).
  *
  * Props:
- *   restaurantId   → id del restaurante actual (para vincular al cliente).
- *   referidoPor    → nombre de quien lo invitó (query param ?ref=), si aplica.
- *   onSuccess(id, nombre, puntos) → mismo contrato que el RegistrationForm
- *                                   original: App.jsx lo usa para pasar a
- *                                   la pantalla de bienvenida.
+ *   restaurantId   → id del restaurante desde el que se abrió el link (si
+ *                    aplica). Ya no se usa para inscribir a nadie aquí —
+ *                    solo se conserva por si se necesita contexto de sede
+ *                    durante la recuperación de contraseña.
  *   recoveryMode   → true cuando App.jsx detecta el evento PASSWORD_RECOVERY
  *                    (el usuario volvió del link de "recuperar contraseña"
  *                    en su correo). Muestra directamente el formulario de
  *                    "nueva contraseña", sin pasar por login/registro.
  *   onRecoveryDone → se llama cuando la contraseña nueva quedó guardada.
+ *
+ * NOTA: no necesita un onSuccess para login/registro — en cuanto Supabase
+ * crea la sesión, App.jsx la detecta solo vía onAuthStateChange y decide
+ * a dónde navegar (buscador de restaurantes, o el formulario/dashboard de
+ * la sede si venía de un link ?r=).
  */
-export const AuthScreen = ({ restaurantId, referidoPor, onSuccess, recoveryMode = false, onRecoveryDone }) => {
+export const AuthScreen = ({ restaurantId, recoveryMode = false, onRecoveryDone }) => {
   // 'login' | 'register' | 'reset' | 'recovery'
   const [modo, setModo] = useState(recoveryMode ? 'recovery' : 'login');
 
@@ -30,8 +39,6 @@ export const AuthScreen = ({ restaurantId, referidoPor, onSuccess, recoveryMode 
   const [mensaje, setMensaje] = useState(null); // { tipo: 'ok'|'error', texto }
 
   // Campos compartidos entre los distintos formularios
-  const [nombre,   setNombre]   = useState('');
-  const [telefono, setTelefono] = useState('');
   const [email,    setEmail]    = useState('');
   const [password, setPassword] = useState('');
   const [password2, setPassword2] = useState(''); // confirmación (registro y recovery)
@@ -67,8 +74,8 @@ export const AuthScreen = ({ restaurantId, referidoPor, onSuccess, recoveryMode 
       }
       // No hace falta hacer nada más aquí: App.jsx escucha
       // supabase.auth.onAuthStateChange y toma el control automáticamente
-      // en cuanto detecta la sesión nueva (vincula/crea el cliente en este
-      // restaurante y muestra el dashboard o la bienvenida).
+      // en cuanto detecta la sesión nueva (verifica si ya está inscrito en
+      // esta sede y muestra el dashboard, o "Crea tu perfil" si no).
     } catch (err) {
       console.error('[AuthScreen] Error en login:', err);
       setMensaje({ tipo: 'error', texto: 'Hubo un problema al iniciar sesión. Intenta de nuevo.' });
@@ -77,18 +84,19 @@ export const AuthScreen = ({ restaurantId, referidoPor, onSuccess, recoveryMode 
     }
   };
 
-  // ── REGISTRO: Nombre + Correo + Contraseña ─────────────────────────────
+  // ── REGISTRO GLOBAL: solo Correo + Contraseña ──────────────────────────
+  // Esta cuenta es única para toda la app — NO pertenece a ningún
+  // restaurante todavía. Los datos propios de cada sede (nombre para el
+  // mesero, teléfono, fecha de nacimiento) se piden después, por
+  // separado, en RegistrationForm ("Crea tu perfil"), cuando el usuario
+  // decide unirse a un restaurante puntual.
   const handleRegister = async (e) => {
     e.preventDefault();
     if (loading) return;
     limpiarMensaje();
 
-    if (!nombre.trim() || !telefono.trim() || !email.trim() || !password) {
-      setMensaje({ tipo: 'error', texto: 'Completa todos los campos.' });
-      return;
-    }
-    if (!/^\d{10}$/.test(telefono.trim())) {
-      setMensaje({ tipo: 'error', texto: 'El teléfono debe tener 10 dígitos, ej: 3206587850.' });
+    if (!email.trim() || !password) {
+      setMensaje({ tipo: 'error', texto: 'Completa tu correo y contraseña.' });
       return;
     }
     if (password.length < 6) {
@@ -100,17 +108,13 @@ export const AuthScreen = ({ restaurantId, referidoPor, onSuccess, recoveryMode 
     try {
       establecerPreferenciaSesion(mantenerSesion);
 
-      // 1) Crear la cuenta en Supabase Auth. Guardamos nombre y teléfono en
-      //    los metadatos del usuario (user_metadata) para poder usarlos
-      //    después al crear su fila en `clientes`, sin volver a pedirlos.
-      //    El teléfono es obligatorio: es el dato con el que el restaurante
-      //    (mesero/admin) identifica al cliente en caja.
+      // Crear la cuenta global en Supabase Auth. Ya no guardamos nombre ni
+      // teléfono en user_metadata: esos son datos LOCALES de cada
+      // restaurante y se capturan más adelante, por sede, en
+      // RegistrationForm.
       const { data, error } = await supabase.auth.signUp({
         email: email.trim().toLowerCase(),
         password,
-        options: {
-          data: { nombre: nombre.trim(), telefono: telefono.trim() },
-        },
       });
       if (error) {
         if (error.message?.toLowerCase().includes('already registered') ||
@@ -122,12 +126,9 @@ export const AuthScreen = ({ restaurantId, referidoPor, onSuccess, recoveryMode 
         return;
       }
 
-      // 2) Si el proyecto de Supabase tiene "Confirmar email" activado,
-      //    signUp() NO devuelve sesión todavía (data.session es null) y el
-      //    usuario debe hacer clic en el correo de confirmación primero.
-      //    En ese caso avisamos y no creamos su fila en `clientes` aún:
-      //    App.jsx la creará automáticamente la primera vez que inicie
-      //    sesión (ver onAuthStateChange en App.jsx).
+      // Si el proyecto de Supabase tiene "Confirmar email" activado,
+      // signUp() NO devuelve sesión todavía (data.session es null) y el
+      // usuario debe hacer clic en el correo de confirmación primero.
       if (!data.session) {
         setMensaje({
           tipo: 'ok',
@@ -137,23 +138,12 @@ export const AuthScreen = ({ restaurantId, referidoPor, onSuccess, recoveryMode 
         return;
       }
 
-      // 3) Si NO hay confirmación de email requerida, ya tenemos sesión.
-      //    Si esta pantalla tiene un `restaurantId` (el usuario entró por el
-      //    link/QR de una sede específica), lo inscribimos de una vez ahí y
-      //    avisamos a App.jsx (misma firma que usaba RegistrationForm) para
-      //    que muestre la bienvenida con los puntos ganados.
-      //    Si NO hay restaurantId (alta desde el gate global, antes del
-      //    buscador), no hay nada más que hacer: la cuenta ya quedó creada
-      //    y App.jsx detecta la sesión nueva solo, vía onAuthStateChange,
-      //    y navega al buscador de restaurantes.
-      if (restaurantId) {
-        const { cliente } = await vincularClienteConRestaurante({
-          user: data.user,
-          restauranteId: restaurantId,
-          referidoPor,
-        });
-        onSuccess?.(cliente.id, cliente.nombre, cliente.puntos);
-      }
+      // Si NO hay confirmación de email requerida, ya tenemos sesión.
+      // No hace falta hacer nada más aquí: App.jsx escucha
+      // supabase.auth.onAuthStateChange y navega solo — al buscador de
+      // restaurantes, o al formulario "Crea tu perfil" de la sede si el
+      // usuario venía de un link/QR (?r=) — sin inscribirlo en ningún
+      // restaurante todavía.
     } catch (err) {
       console.error('[AuthScreen] Error en registro:', err);
       setMensaje({ tipo: 'error', texto: 'Hubo un problema al crear tu cuenta. Intenta de nuevo.' });
@@ -237,7 +227,6 @@ export const AuthScreen = ({ restaurantId, referidoPor, onSuccess, recoveryMode 
   const cambiarModo = (nuevoModo) => {
     setModo(nuevoModo);
     limpiarMensaje();
-    setTelefono('');
     setPassword('');
     setPassword2('');
   };
@@ -248,15 +237,13 @@ export const AuthScreen = ({ restaurantId, referidoPor, onSuccess, recoveryMode 
       <div style={styles.header}>
         <h2 style={styles.title}>
           {modo === 'login'    && 'Inicia sesión'}
-          {modo === 'register' && 'Crea tu perfil'}
+          {modo === 'register' && 'Crea tu cuenta'}
           {modo === 'reset'    && 'Recuperar contraseña'}
           {modo === 'recovery' && 'Nueva contraseña'}
         </h2>
         <p style={styles.subtitle}>
           {modo === 'login'    && '¿Ya tienes cuenta? Ingresa con tu correo.'}
-          {modo === 'register' && (restaurantId
-            ? 'Regístrate hoy y gana tus primeros 2 puntos'
-            : 'Crea tu cuenta única para todos los restaurantes')}
+          {modo === 'register' && 'Crea tu cuenta única para descubrir y unirte a restaurantes'}
           {modo === 'reset'    && 'Te enviaremos un link a tu correo'}
           {modo === 'recovery' && 'Elige una nueva contraseña para tu cuenta'}
         </p>
@@ -300,16 +287,6 @@ export const AuthScreen = ({ restaurantId, referidoPor, onSuccess, recoveryMode 
       {/* ── REGISTRO ── */}
       {modo === 'register' && (
         <form onSubmit={handleRegister}>
-          <div style={styles.field}>
-            <label style={styles.label} htmlFor="regNombre">Nombre completo</label>
-            <input id="regNombre" type="text" required placeholder="Ej: Juan Pérez"
-              style={styles.input} value={nombre} onChange={(e) => setNombre(e.target.value)} />
-          </div>
-          <div style={styles.field}>
-            <label style={styles.label} htmlFor="regTelefono">Teléfono / WhatsApp</label>
-            <input id="regTelefono" type="tel" required pattern="[0-9]{10}" placeholder="Ej: 3206587850"
-              style={styles.input} value={telefono} onChange={(e) => setTelefono(e.target.value)} />
-          </div>
           <div style={styles.field}>
             <label style={styles.label} htmlFor="regEmail">Correo electrónico</label>
             <input id="regEmail" type="email" required autoComplete="email" placeholder="ejemplo@correo.com"

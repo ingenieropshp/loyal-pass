@@ -69,10 +69,13 @@ export const BuscadorRestaurantes = ({ session, onLogout }) => {
     cargar();
   }, [session?.user?.id]);
 
-  // Navega a la vista de la sede. App.jsx se encarga de todo lo demás:
-  // si el usuario ya está inscrito ahí, entra directo a su tarjeta de
-  // fidelización; si no, lo inscribe automáticamente (misma sesión, sin
-  // pedirle datos otra vez) y le muestra la bienvenida con sus puntos.
+  // Navega a la vista de la sede. App.jsx verifica ahí si el usuario ya
+  // tiene una fila en `clientes` para ese restaurante (misma sesión
+  // global, distinta sede):
+  //   - Si ya está inscrito → entra directo a su tarjeta de fidelización.
+  //   - Si NO está inscrito → NO se le crea nada automáticamente; se le
+  //     muestra primero "Crea tu perfil" para que decida, con control
+  //     total, si quiere unirse a este restaurante.
   const irA = (nombre) => { window.location.href = `/?r=${encodeURIComponent(nombre)}`; };
 
   const filtrados = restaurantes.filter(r =>
@@ -102,7 +105,7 @@ export const BuscadorRestaurantes = ({ session, onLogout }) => {
       {mostrarPerfil && onLogout && (
         <div style={styles.profilePanel}>
           <span style={{ fontSize: '0.8rem', color: 'var(--text)', opacity: 0.75 }}>
-            {session?.user?.email || session?.user?.user_metadata?.telefono}
+            {session?.user?.email}
           </span>
           <button
             onClick={() => {

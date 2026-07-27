@@ -1,7 +1,26 @@
 import { useState } from 'react';
-import { supabase } from '../services/supabaseClient';
+import { registrarClienteEnRestaurante } from '../services/supabaseClient';
 
-export const RegistrationForm = ({ onSuccess, restaurantId, referidoPor }) => {
+/**
+ * RegistrationForm — "Crea tu perfil", el paso 2 (registro LOCAL) del flujo
+ * de dos etapas. Solo se muestra cuando ya existe una sesión global de
+ * Supabase Auth (paso 1, ver AuthScreen) y App.jsx ya verificó que ese
+ * usuario todavía NO tiene una fila en `clientes` para este restaurante.
+ *
+ * No crea cuentas ni pide correo/contraseña — eso ya ocurrió a nivel
+ * global. Aquí solo se piden los datos propios de la relación con ESTE
+ * restaurante (nombre para el mesero, teléfono/WhatsApp, fecha de
+ * nacimiento) y, al confirmar, se vincula el `auth_id` de la sesión con el
+ * `restaurante_id` actual.
+ *
+ * Props:
+ *   user          → session.user de Supabase Auth (ya autenticado).
+ *   restaurantId  → id del restaurante en el que se está inscribiendo.
+ *   referidoPor   → nombre de quien lo invitó (query param ?ref=), si aplica.
+ *   onSuccess(id, nombre, puntos) → App.jsx lo usa para pasar a la
+ *                                   pantalla de bienvenida con los puntos.
+ */
+export const RegistrationForm = ({ onSuccess, user, restaurantId, referidoPor }) => {
   const [formData, setFormData] = useState({ nombre: '', telefono: '', fechaNacimiento: '' });
   const [loading,  setLoading]  = useState(false);
   const [mostrarTerminos, setMostrarTerminos] = useState(false);
@@ -20,40 +39,29 @@ export const RegistrationForm = ({ onSuccess, restaurantId, referidoPor }) => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (loading) return;
+    if (!user?.id) {
+      alert('Tu sesión no es válida. Vuelve a iniciar sesión e intenta de nuevo.');
+      return;
+    }
     if (!formData.nombre.trim() || !formData.telefono.trim() || !formData.fechaNacimiento) {
       alert('Por favor, completa todos los campos.');
       return;
     }
     setLoading(true);
     try {
-      const { data: existente, error: errorBusqueda } = await supabase
-        .from('clientes').select('id, nombre, puntos')
-        .eq('telefono', formData.telefono.trim())
-        .eq('restaurante_id', restaurantId)
-        .maybeSingle();
+      // Une la cuenta global (auth_id) ya autenticada con este restaurante
+      // en particular. El usuario decide explícitamente unirse al hacer
+      // clic en "Unirme al club" — nunca ocurre de forma automática.
+      const cliente = await registrarClienteEnRestaurante({
+        user,
+        restauranteId:   restaurantId,
+        nombre:          formData.nombre.trim(),
+        telefono:        formData.telefono.trim(),
+        fechaNacimiento: formData.fechaNacimiento,
+        referidoPor,
+      });
 
-      if (errorBusqueda) throw errorBusqueda;
-
-      if (existente) {
-        onSuccess?.(existente.id, existente.nombre, existente.puntos);
-        setLoading(false);
-        return;
-      }
-
-      const { data, error: errorInsert } = await supabase
-        .from('clientes').insert([{
-          nombre:          formData.nombre.trim(),
-          telefono:        formData.telefono.trim(),
-          fecha_nacimiento: formData.fechaNacimiento,
-          puntos:          2,
-          origen:          'Registro Web',
-          restaurante_id:  restaurantId,
-          referidopor:     referidoPor || 'Directo (QR local)',
-          fecha_registro:  new Date().toISOString(),
-        }]).select().single();
-
-      if (errorInsert) throw errorInsert;
-      onSuccess?.(data.id, formData.nombre.trim(), 2);
+      onSuccess?.(cliente.id, cliente.nombre, cliente.puntos);
     } catch (error) {
       console.error('Error en registro:', error);
       if (error?.code === '23505') {

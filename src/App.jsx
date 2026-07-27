@@ -1,11 +1,12 @@
 import { useState, useEffect, useMemo } from 'react';
 import { GeofencingProvider } from './components/GeofencingProvider';
 import { AuthScreen }       from './components/AuthScreen';
+import { RegistrationForm } from './components/RegistrationForm';
 import { SuccessCard }      from './components/manejarRegistro';
 import { UserDashboard }    from './components/UserDashboard';
 import { BuscadorRestaurantes } from './components/BuscadorRestaurantes';
 import { useLocation }      from './hooks/useLocation';
-import { supabase, vincularClienteConRestaurante } from './services/supabaseClient';
+import { supabase, buscarClienteEnRestaurante } from './services/supabaseClient';
 import './App.css';
 
 function App() {
@@ -91,29 +92,37 @@ function App() {
 
         // ── Identificar al cliente ────────────────────────────────────
         // Prioridad 1: si hay sesión de Supabase Auth activa (login
-        //   persistente), esa es la fuente de verdad — buscamos/creamos
-        //   su fila de cliente para ESTA sede vía vincularClienteConRestaurante.
+        //   persistente global), esa es la fuente de verdad — pero ojo:
+        //   tener sesión NO significa estar inscrito en ESTA sede. Solo
+        //   VERIFICAMOS (buscarClienteEnRestaurante, solo lectura); nunca
+        //   creamos la fila aquí. Si no existe, clienteId queda en null y
+        //   más abajo se muestra el formulario "Crea tu perfil" para que
+        //   el usuario decida, con control total, si quiere unirse a esta
+        //   sede o no.
         // Prioridad 2 (compatibilidad hacia atrás): si no hay sesión pero
         //   sí hay un clienteId guardado en localStorage (usuarios que se
         //   registraron antes de esta actualización, con el formulario
         //   rápido sin cuenta), seguimos verificándolo como antes.
         if (session?.user) {
-          const { cliente, esNuevoRegistro } = await vincularClienteConRestaurante({
-            user: session.user,
+          const cliente = await buscarClienteEnRestaurante({
+            authUserId: session.user.id,
             restauranteId: sede.id,
-            referidoPor,
           });
-          const registros = JSON.parse(localStorage.getItem('bistro_multisede') || '{}');
-          registros[restauranteID] = cliente.id;
-          localStorage.setItem('bistro_multisede', JSON.stringify(registros));
 
-          setClienteId(cliente.id);
-          setNombreCliente(cliente.nombre);
-          setPuntosCliente(cliente.puntos);
-          // Si es la primera vez que este cliente se une a ESTA sede,
-          // mostramos la pantalla de bienvenida con los puntos ganados,
-          // igual que ocurría con el registro rápido original.
-          if (esNuevoRegistro) setIsRegisteredNow(true);
+          const registros = JSON.parse(localStorage.getItem('bistro_multisede') || '{}');
+          if (cliente) {
+            registros[restauranteID] = cliente.id;
+            localStorage.setItem('bistro_multisede', JSON.stringify(registros));
+
+            setClienteId(cliente.id);
+            setNombreCliente(cliente.nombre);
+            setPuntosCliente(cliente.puntos);
+          } else {
+            // Autenticado globalmente, pero aún NO inscrito en esta sede.
+            delete registros[restauranteID];
+            localStorage.setItem('bistro_multisede', JSON.stringify(registros));
+            setClienteId(null);
+          }
         } else if (clienteId) {
           const { data: userDB, error: errorUser } = await supabase
             .from('clientes').select('id, nombre, puntos')
@@ -278,7 +287,6 @@ function App() {
       <div className="main-wrapper" style={{ justifyContent: 'center', padding: '2rem 1rem' }}>
         <AuthScreen
           restaurantId={bistroLoc?.restaurante_id}
-          referidoPor={referidoPor}
           recoveryMode
           onRecoveryDone={() => setPasswordRecovery(false)}
         />
@@ -294,11 +302,12 @@ function App() {
   //
   // Si el usuario entró por un link directo de un restaurante (?r=...) y
   // aún no tiene sesión, seguimos esperando (spinner) a que `bistroLoc`
-  // termine de cargar para poder pasarle `restaurantId` al AuthScreen — así,
-  // en cuanto cree su cuenta, queda inscrito automáticamente en ESE
-  // restaurante en el mismo paso (sin perder el contexto del link/QR que
-  // escaneó). Si entró por la raíz (sin ?r=), restaurantId simplemente
-  // queda null: el AuthScreen solo crea la cuenta, sin inscribirlo en nada.
+  // termine de cargar. AuthScreen SOLO crea/inicia la cuenta global (correo
+  // + contraseña) — nunca inscribe en ningún restaurante. En cuanto la
+  // sesión queda activa, este mismo componente vuelve a renderizar, el
+  // efecto de arriba verifica si ya existe una fila en `clientes` para esta
+  // sede y, si no, se muestra "Crea tu perfil" (RegistrationForm) sin
+  // perder el contexto del link/QR que escaneó.
   if (!session?.user) {
     if (restauranteID && (isVerifyingUser || !bistroLoc) && !sedeNoEncontrada) {
       return (
@@ -315,8 +324,6 @@ function App() {
         </header>
         <AuthScreen
           restaurantId={sedeNoEncontrada ? null : bistroLoc?.restaurante_id}
-          referidoPor={referidoPor}
-          onSuccess={handleSuccess}
         />
       </div>
     );
@@ -450,7 +457,12 @@ function App() {
             onLogout={handleLogout}
           />
         ) : (
-          <AuthScreen
+          // Ya hay sesión global (session.user existe — de lo contrario no
+          // llegaríamos aquí, ver el GATE más arriba), pero todavía no hay
+          // una fila en `clientes` para ESTA sede: "Crea tu perfil" es la
+          // inscripción local, explícita y controlada por el usuario.
+          <RegistrationForm
+            user={session.user}
             restaurantId={bistroLoc.restaurante_id}
             referidoPor={referidoPor}
             onSuccess={handleSuccess}
