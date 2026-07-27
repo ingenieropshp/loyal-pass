@@ -32,7 +32,13 @@ export const RegistrationForm = ({ onSuccess, user, restaurantId, referidoPor })
 
   const handleChange = (e) => {
     const { id, value } = e.target;
-    const key = id === 'whatsapp' ? 'telefono' : id === 'nacimiento' ? 'fechaNacimiento' : id;
+    if (id === 'whatsapp') {
+      // Solo dígitos, máximo 10 (el +57 se antepone al guardar, no se escribe aquí)
+      const soloDigitos = value.replace(/\D/g, '').slice(0, 10);
+      setFormData(prev => ({ ...prev, telefono: soloDigitos }));
+      return;
+    }
+    const key = id === 'nacimiento' ? 'fechaNacimiento' : id;
     setFormData(prev => ({ ...prev, [key]: value }));
   };
 
@@ -47,8 +53,17 @@ export const RegistrationForm = ({ onSuccess, user, restaurantId, referidoPor })
       alert('Por favor, completa todos los campos.');
       return;
     }
+    if (!/^\d{10}$/.test(formData.telefono.trim())) {
+      alert('El teléfono debe tener 10 dígitos, ej: 3206587850.');
+      return;
+    }
     setLoading(true);
     try {
+      // Guardamos el teléfono con el indicativo de Colombia (+57) para que
+      // quede en formato internacional en la base de datos, aunque el
+      // usuario solo digite los 10 dígitos locales.
+      const telefonoConIndicativo = `+57${formData.telefono.trim()}`;
+
       // Une la cuenta global (auth_id) ya autenticada con este restaurante
       // en particular. El usuario decide explícitamente unirse al hacer
       // clic en "Unirme al club" — nunca ocurre de forma automática.
@@ -56,7 +71,7 @@ export const RegistrationForm = ({ onSuccess, user, restaurantId, referidoPor })
         user,
         restauranteId:   restaurantId,
         nombre:          formData.nombre.trim(),
-        telefono:        formData.telefono.trim(),
+        telefono:        telefonoConIndicativo,
         fechaNacimiento: formData.fechaNacimiento,
         referidoPor,
       });
@@ -91,20 +106,26 @@ export const RegistrationForm = ({ onSuccess, user, restaurantId, referidoPor })
         <div style={styles.field}>
           <label style={styles.label} htmlFor="nombre">Nombre completo</label>
           <input id="nombre" type="text" required placeholder="Ej: Juan Pérez"
-            style={styles.input} value={formData.nombre} onChange={handleChange} />
+            style={styles.input} value={formData.nombre} onChange={handleChange}
+            autoComplete="off" autoCorrect="off" autoCapitalize="words" spellCheck="false" />
         </div>
 
         <div style={styles.field}>
           <label style={styles.label} htmlFor="whatsapp">Teléfono / WhatsApp</label>
-          <input id="whatsapp" type="tel" required pattern="[0-9]{10}"
-            placeholder="Ej: 3206587850" style={styles.input}
-            value={formData.telefono} onChange={handleChange} />
+          <div style={styles.phoneRow}>
+            <span style={styles.phonePrefix}>+57</span>
+            <input id="whatsapp" type="tel" required inputMode="numeric" pattern="[0-9]{10}"
+              maxLength={10} placeholder="3206587850" style={styles.phoneInput}
+              value={formData.telefono} onChange={handleChange}
+              autoComplete="off" autoCorrect="off" spellCheck="false" />
+          </div>
         </div>
 
         <div style={{ ...styles.field, marginBottom: '1.25rem' }}>
           <label style={styles.label} htmlFor="nacimiento">Fecha de nacimiento</label>
           <input id="nacimiento" type="date" required min={fechaMinima} max={fechaMaxima}
-            style={styles.input} value={formData.fechaNacimiento} onChange={handleChange} />
+            style={styles.input} value={formData.fechaNacimiento} onChange={handleChange}
+            autoComplete="off" />
         </div>
 
         {/* Submit */}
@@ -207,6 +228,36 @@ const styles = {
     color: 'var(--text-h)',
     outline: 'none',
     transition: 'border-color 0.2s, box-shadow 0.2s',
+  },
+  phoneRow: {
+    display: 'flex',
+    alignItems: 'stretch',
+    border: '1.5px solid var(--border)',
+    borderRadius: 'var(--r-md)',
+    background: 'var(--bg-subtle)',
+    overflow: 'hidden',
+  },
+  phonePrefix: {
+    display: 'flex',
+    alignItems: 'center',
+    padding: '0 10px',
+    fontSize: 16,
+    fontWeight: 600,
+    color: 'var(--text-h)',
+    background: 'var(--border)',
+    flexShrink: 0,
+  },
+  phoneInput: {
+    flex: 1,
+    minWidth: 0,
+    padding: '11px 14px',
+    fontSize: 16, /* evita zoom en iPhone */
+    fontFamily: 'var(--font-body)',
+    fontWeight: 400,
+    background: 'transparent',
+    border: 'none',
+    color: 'var(--text-h)',
+    outline: 'none',
   },
   btnJoin: {
     display: 'block',
