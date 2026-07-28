@@ -12,9 +12,11 @@ import './App.css';
 function App() {
   const params = useMemo(() => new URLSearchParams(window.location.search), []);
 
-  // Si NO viene ?r=, mostramos el buscador global de restaurantes.
-  const rRaw = params.get('r');
-  const restauranteID = rRaw ? decodeURIComponent(rRaw).trim() : null;
+  // El QR impreso en el local codifica ?restaurante_id=<id>. Seguimos
+  // aceptando también ?r=<id-o-nombre> por compatibilidad con links/QRs
+  // generados antes de este cambio — ambos apuntan a la misma sede.
+  const idParamRaw = params.get('restaurante_id') || params.get('r');
+  const restauranteID = idParamRaw ? decodeURIComponent(idParamRaw).trim() : null;
 
   // ── Sesión persistente de Supabase Auth ───────────────────────────────
   // `session` es null mientras no sabemos si hay un login guardado, y
@@ -300,8 +302,8 @@ function App() {
   // ÚNICA y global — se crea/inicia sesión UNA sola vez, antes de llegar a
   // "Descubre restaurantes".
   //
-  // Si el usuario entró por un link directo de un restaurante (?r=...) y
-  // aún no tiene sesión, seguimos esperando (spinner) a que `bistroLoc`
+  // Si el usuario entró por un link/QR directo de un restaurante
+  // (?restaurante_id=... o ?r=...) y aún no tiene sesión, seguimos esperando (spinner) a que `bistroLoc`
   // termine de cargar. AuthScreen SOLO crea/inicia la cuenta global (correo
   // + contraseña) — nunca inscribe en ningún restaurante. En cuanto la
   // sesión queda activa, este mismo componente vuelve a renderizar, el
@@ -329,7 +331,7 @@ function App() {
     );
   }
 
-  // ── Ya autenticado, sin ?r= en la URL → buscador de restaurantes ─────────
+  // ── Ya autenticado, sin ?restaurante_id= (ni ?r=) en la URL → buscador ───
   if (!restauranteID) {
     return <BuscadorRestaurantes session={session} onLogout={handleLogout} />;
   }
