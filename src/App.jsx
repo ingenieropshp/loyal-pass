@@ -89,7 +89,7 @@ function App() {
     const inicializarDatos = async () => {
       setIsVerifyingUser(true);
       try {
-        const esUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(restauranteID);
+        const esUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(restauranteID);
         let q = supabase.from('configuracion').select('id, nombre');
         q = esUUID ? q.eq('id', restauranteID) : q.ilike('nombre', restauranteID);
         const { data: sede, error: errorSede } = await q.maybeSingle();
