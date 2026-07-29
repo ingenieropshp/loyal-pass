@@ -10,30 +10,29 @@ import { supabase, establecerPreferenciaSesion } from '../services/supabaseClien
  * perfil"), la primera vez que el usuario elige unirse a un restaurante
  * en concreto.
  *
- * Maneja 3 flujos (más un 4to interno de recuperación):
+ * Maneja 3 flujos:
  *   'login'    → Correo + Contraseña (autenticación directa contra Supabase Auth).
  *   'register' → Correo + Contraseña (crea la cuenta única y global).
  *   'reset'    → Recuperar contraseña por email (supabase.auth.resetPasswordForEmail).
  *
+ * El 4to paso ("nueva contraseña", cuando el usuario vuelve del link del
+ * correo) vive por separado en ResetPassword.jsx — App.jsx lo muestra
+ * directamente en cuanto detecta el evento PASSWORD_RECOVERY, sin pasar
+ * por este componente.
+ *
  * Props:
- *   restaurantId   → id del restaurante desde el que se abrió el link (si
- *                    aplica). Ya no se usa para inscribir a nadie aquí —
- *                    solo se conserva por si se necesita contexto de sede
- *                    durante la recuperación de contraseña.
- *   recoveryMode   → true cuando App.jsx detecta el evento PASSWORD_RECOVERY
- *                    (el usuario volvió del link de "recuperar contraseña"
- *                    en su correo). Muestra directamente el formulario de
- *                    "nueva contraseña", sin pasar por login/registro.
- *   onRecoveryDone → se llama cuando la contraseña nueva quedó guardada.
+ *   restaurantId → id del restaurante desde el que se abrió el link (si
+ *                  aplica). No se usa para inscribir a nadie aquí — solo
+ *                  se conserva por si se necesita contexto de sede.
  *
  * NOTA: no necesita un onSuccess para login/registro — en cuanto Supabase
  * crea la sesión, App.jsx la detecta solo vía onAuthStateChange y decide
  * a dónde navegar (buscador de restaurantes, o el formulario/dashboard de
  * la sede si venía de un link ?r=).
  */
-export const AuthScreen = ({ restaurantId, recoveryMode = false, onRecoveryDone }) => {
-  // 'login' | 'register' | 'reset' | 'recovery'
-  const [modo, setModo] = useState(recoveryMode ? 'recovery' : 'login');
+export const AuthScreen = ({ restaurantId }) => {
+  // 'login' | 'register' | 'reset'
+  const [modo, setModo] = useState('login');
 
   const [loading, setLoading] = useState(false);
   const [mensaje, setMensaje] = useState(null); // { tipo: 'ok'|'error', texto }
@@ -41,7 +40,6 @@ export const AuthScreen = ({ restaurantId, recoveryMode = false, onRecoveryDone 
   // Campos compartidos entre los distintos formularios
   const [email,    setEmail]    = useState('');
   const [password, setPassword] = useState('');
-  const [password2, setPassword2] = useState(''); // confirmación (registro y recovery)
   const [mantenerSesion, setMantenerSesion] = useState(true); // checkbox "Mantener sesión iniciada"
 
   const limpiarMensaje = () => setMensaje(null);
@@ -189,46 +187,10 @@ export const AuthScreen = ({ restaurantId, recoveryMode = false, onRecoveryDone 
     }
   };
 
-  // ── RECOVERY: guardar la nueva contraseña (paso final tras el link) ────
-  const handleSetNewPassword = async (e) => {
-    e.preventDefault();
-    if (loading) return;
-    limpiarMensaje();
-
-    if (password.length < 6) {
-      setMensaje({ tipo: 'error', texto: 'La contraseña debe tener al menos 6 caracteres.' });
-      return;
-    }
-    if (password !== password2) {
-      setMensaje({ tipo: 'error', texto: 'Las contraseñas no coinciden.' });
-      return;
-    }
-
-    setLoading(true);
-    try {
-      // En este punto ya existe una sesión temporal de "recuperación" creada
-      // automáticamente por detectSessionInUrl al volver del correo, así que
-      // updateUser() cambia la contraseña de ESE usuario sin pedir la vieja.
-      const { error } = await supabase.auth.updateUser({ password });
-      if (error) {
-        setMensaje({ tipo: 'error', texto: error.message });
-        return;
-      }
-      setMensaje({ tipo: 'ok', texto: 'Contraseña actualizada. ¡Ya puedes continuar!' });
-      onRecoveryDone?.();
-    } catch (err) {
-      console.error('[AuthScreen] Error al actualizar contraseña:', err);
-      setMensaje({ tipo: 'error', texto: 'Hubo un problema al actualizar tu contraseña.' });
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const cambiarModo = (nuevoModo) => {
     setModo(nuevoModo);
     limpiarMensaje();
     setPassword('');
-    setPassword2('');
   };
 
   return (
@@ -239,13 +201,11 @@ export const AuthScreen = ({ restaurantId, recoveryMode = false, onRecoveryDone 
           {modo === 'login'    && 'Inicia sesión'}
           {modo === 'register' && 'Crea tu cuenta'}
           {modo === 'reset'    && 'Recuperar contraseña'}
-          {modo === 'recovery' && 'Nueva contraseña'}
         </h2>
         <p style={styles.subtitle}>
           {modo === 'login'    && '¿Ya tienes cuenta? Ingresa con tu correo.'}
           {modo === 'register' && 'Crea tu cuenta única para descubrir y unirte a restaurantes'}
           {modo === 'reset'    && 'Te enviaremos un link a tu correo'}
-          {modo === 'recovery' && 'Elige una nueva contraseña para tu cuenta'}
         </p>
       </div>
 
@@ -325,25 +285,6 @@ export const AuthScreen = ({ restaurantId, recoveryMode = false, onRecoveryDone 
           <p style={styles.linkRow}>
             <span style={styles.linkText} onClick={() => cambiarModo('login')}>← Volver a iniciar sesión</span>
           </p>
-        </form>
-      )}
-
-      {/* ── NUEVA CONTRASEÑA (después de hacer clic en el correo) ── */}
-      {modo === 'recovery' && (
-        <form onSubmit={handleSetNewPassword}>
-          <div style={styles.field}>
-            <label style={styles.label} htmlFor="newPassword">Nueva contraseña</label>
-            <input id="newPassword" type="password" required minLength={6} placeholder="Mínimo 6 caracteres"
-              style={styles.input} value={password} onChange={(e) => setPassword(e.target.value)} />
-          </div>
-          <div style={{ ...styles.field, marginBottom: '1.25rem' }}>
-            <label style={styles.label} htmlFor="newPassword2">Confirmar contraseña</label>
-            <input id="newPassword2" type="password" required minLength={6} placeholder="Repite la contraseña"
-              style={styles.input} value={password2} onChange={(e) => setPassword2(e.target.value)} />
-          </div>
-          <button type="submit" disabled={loading} style={{ ...styles.btnJoin, opacity: loading ? 0.75 : 1 }}>
-            {loading ? 'Guardando…' : 'Guardar contraseña'}
-          </button>
         </form>
       )}
     </div>

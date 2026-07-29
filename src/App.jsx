@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { GeofencingProvider } from './components/GeofencingProvider';
 import { AuthScreen }       from './components/AuthScreen';
+import { ResetPassword }    from './components/ResetPassword';
 import { RegistrationForm } from './components/RegistrationForm';
 import { SuccessCard }      from './components/manejarRegistro';
 import { UserDashboard }    from './components/UserDashboard';
@@ -287,11 +288,10 @@ function App() {
   if (passwordRecovery) {
     return (
       <div className="main-wrapper" style={{ justifyContent: 'center', padding: '2rem 1rem' }}>
-        <AuthScreen
-          restaurantId={bistroLoc?.restaurante_id}
-          recoveryMode
-          onRecoveryDone={() => setPasswordRecovery(false)}
-        />
+        <header style={{ textAlign: 'center', margin: '0.5rem 0 1.5rem', width: '100%' }}>
+          <h1 className="bistro-title">Bistro Connect<span className="dot">.</span></h1>
+        </header>
+        <ResetPassword onDone={() => setPasswordRecovery(false)} />
       </div>
     );
   }
