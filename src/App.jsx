@@ -28,8 +28,16 @@ function App() {
   const [session,           setSession]           = useState(null);
   const [sessionLoaded,     setSessionLoaded]      = useState(false);
   // Se activa cuando el usuario vuelve del link de "recuperar contraseña"
-  // de su correo (evento PASSWORD_RECOVERY de Supabase Auth).
-  const [passwordRecovery,  setPasswordRecovery]   = useState(false);
+  // de su correo. OJO: no basta con escuchar el evento PASSWORD_RECOVERY de
+  // onAuthStateChange — Supabase procesa el #access_token del hash de forma
+  // asíncrona apenas se crea el cliente (al importar supabaseClient.js),
+  // que puede pasar ANTES de que este useEffect llegue a suscribirse. Si el
+  // evento se dispara sin que nadie lo esté escuchando todavía, se pierde.
+  // Por eso inicializamos leyendo el hash directamente y de forma síncrona:
+  // así queda detectado sin importar si alcanzamos a "escuchar" el evento.
+  const [passwordRecovery,  setPasswordRecovery]   = useState(
+    () => window.location.hash.includes('type=recovery')
+  );
 
   const [clienteId,       setClienteId]       = useState(() => {
     if (!restauranteID) return null;
@@ -291,7 +299,13 @@ function App() {
         <header style={{ textAlign: 'center', margin: '0.5rem 0 1.5rem', width: '100%' }}>
           <h1 className="bistro-title">Bistro Connect<span className="dot">.</span></h1>
         </header>
-        <ResetPassword onDone={() => setPasswordRecovery(false)} />
+        <ResetPassword onDone={() => {
+          // Limpiamos el #access_token de la URL para que un refresco de
+          // página no vuelva a intentar activar la recuperación con un
+          // token que ya se usó.
+          window.history.replaceState(null, '', window.location.pathname + window.location.search);
+          setPasswordRecovery(false);
+        }} />
       </div>
     );
   }
