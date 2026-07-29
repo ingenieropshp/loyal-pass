@@ -363,37 +363,17 @@ export const UserDashboard = ({
 
       {/* Panel de perfil / configuración (solo "Cerrar sesión" por ahora) */}
       {mostrarPerfil && onLogout && (
-        <div style={{
-          width: '100%',
-          background: 'var(--bg-subtle)',
-          border: '1px solid var(--border)',
-          borderRadius: 'var(--r-md)',
-          padding: '0.75rem 1rem',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: '0.75rem',
-        }}>
-          <span style={{ fontSize: '0.8rem', color: 'var(--text)', opacity: 0.75 }}>
+        <div className="perfil-panel">
+          <span className="perfil-email" title={cliente.email || cliente.telefono}>
             {cliente.email || cliente.telefono}
           </span>
           <button
+            className="btn-logout"
             onClick={() => {
               // Confirmación simple para evitar cierres de sesión accidentales.
               if (window.confirm('¿Cerrar sesión? Podrás volver a ingresar con tu teléfono y contraseña.')) {
                 onLogout();
               }
-            }}
-            style={{
-              background: 'transparent',
-              border: '1px solid var(--coral)',
-              color: 'var(--coral)',
-              borderRadius: 'var(--r-sm)',
-              padding: '6px 12px',
-              fontSize: '0.75rem',
-              fontWeight: 700,
-              cursor: 'pointer',
-              whiteSpace: 'nowrap',
             }}
           >
             Cerrar sesión

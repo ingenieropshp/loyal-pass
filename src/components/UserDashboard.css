@@ -598,3 +598,60 @@
   color: var(--coral);
   white-space: nowrap;
 }
+
+/* ══════════════════════════════════════════════════════
+   PANEL DE PERFIL (correo + cerrar sesión) — 100% responsive
+   Mobile-first: apilado y a todo el ancho por defecto;
+   a partir de 640px (equivalente a "sm:" de Tailwind) pasa
+   a una fila con el correo y el botón distribuidos.
+══════════════════════════════════════════════════════ */
+.perfil-panel {
+  width: 100%;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: 0.75rem 1rem;
+  display: flex;
+  flex-direction: column;   /* mobile: correo arriba, botón abajo */
+  align-items: stretch;
+  gap: 0.6rem;
+}
+
+.perfil-email {
+  font-size: 0.8rem;
+  color: var(--text);
+  opacity: 0.75;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0; /* clave: sin esto un hijo flex no trunca su texto largo */
+}
+
+.btn-logout {
+  width: 100%;              /* mobile: ancho completo */
+  flex-shrink: 0;           /* nunca se comprime aunque el correo sea largo */
+  background: transparent;
+  border: 1px solid var(--coral);
+  color: var(--coral);
+  border-radius: var(--r-xl);
+  padding: 0.5rem 1rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  text-align: center;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.btn-logout:hover  { background: var(--coral); color: #fff; }
+.btn-logout:active { transform: scale(0.97); }
+
+@media (min-width: 640px) {
+  .perfil-panel {
+    flex-direction: row;      /* sm+: correo y botón en la misma fila */
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+  }
+  .perfil-email { flex: 1; } /* toma el espacio disponible antes de truncar */
+  .btn-logout   { width: auto; }
+}
