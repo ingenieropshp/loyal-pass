@@ -219,13 +219,19 @@ export const UserDashboard = ({
       // Fire-and-forget: no bloquea el flujo del usuario (la confirmación de
       // llegada no depende de esta métrica). Antes se hacía "await" y eso
       // sumaba un viaje de red completo antes de poder mostrar el PIN.
+      //
+      // Columnas reales de metricas_proximidad: id, restaurante_id, fecha,
+      // distancia_metros, exito, cliente_id, origen. IMPORTANTE: cliente_id
+      // requiere que ya se haya aplicado la migración que agrega esa
+      // columna (ALTER TABLE metricas_proximidad ADD COLUMN cliente_id uuid
+      // REFERENCES clientes(id)) — sin ella, Supabase seguirá rechazando
+      // este insert igual que rechazaba las columnas viejas.
       supabase.from('metricas_proximidad').insert([{
-        cliente:              cliente?.nombre || 'Anónimo',
-        restaurante:          nombreRestaurante,
-        restaurante_id:       restauranteId,
-        distancia:            Math.round(distM),
-        dentro_del_rango_800: distM <= 800,
-        es_exito_total:       distM <= radio,
+        restaurante_id:    restauranteId,
+        cliente_id:        clienteId,
+        distancia_metros:  Math.round(distM),
+        exito:             distM <= radio,
+        origen:            'app_cliente',
       }]).then(({ error: insertError }) => {
         if (insertError) {
           // Queda registrado para diagnosticar problemas de RLS/permisos
