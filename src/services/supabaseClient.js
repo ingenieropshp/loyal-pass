@@ -15,7 +15,7 @@ if (!supabaseUrl || !supabaseAnonKey) {
 // cerrar la pestaña), usamos un storage "proxy": Supabase le pide que
 // guarde/lea el token, y él revisa esta preferencia para decidir a cuál de
 // los dos storages reales escribir.
-const CLAVE_PREFERENCIA_SESION = 'bistro_mantener_sesion';
+const CLAVE_PREFERENCIA_SESION = 'loyalpass_mantener_sesion';
 
 export const establecerPreferenciaSesion = (mantener) => {
   window.localStorage.setItem(CLAVE_PREFERENCIA_SESION, mantener ? 'true' : 'false');

@@ -1,4 +1,5 @@
 import { useIOS } from '../hooks/useIOS';
+import { BrandLogo } from './BrandLogo';
 
 /**
  * IOSInstallBanner.jsx
@@ -29,7 +30,13 @@ export function IOSInstallBanner() {
         color: 'var(--text, #1a1a1a)',
       }}
     >
-      <strong>📲 Para recibir notificaciones y guardar tu progreso:</strong>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
+        <BrandLogo size={28} showWordmark={false} />
+        <strong>📲 Instala LoyalPass en tu iPhone</strong>
+      </div>
+      <p style={{ margin: '0 0 6px', opacity: 0.8 }}>
+        Para recibir notificaciones y guardar tu progreso:
+      </p>
       <ol style={{ margin: '8px 0 0', paddingLeft: '1.2rem' }}>
         <li>
           Toca el ícono de compartir{' '}

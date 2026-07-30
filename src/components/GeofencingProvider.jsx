@@ -1,5 +1,5 @@
 /**
- * GeofencingProvider.jsx — Bistro Connect
+ * GeofencingProvider.jsx — LoyalPass
  *
  * Carga los restaurantes activos de Supabase (tablas `conexion` + `configuracion`)
  * con dos queries simples (sin join) para máxima compatibilidad con RLS.
@@ -27,14 +27,14 @@ export function GeofencingProvider({ children }) {
   // Escuchar cambios en las preferencias (cuando el usuario activa/desactiva desde SelectorNotificaciones)
   useEffect(() => {
     const onStorage = (e) => {
-      if (e.key === 'bistro_notif_prefs') setPrefsClave(k => k + 1);
+      if (e.key === 'loyalpass_notif_prefs') setPrefsClave(k => k + 1);
     };
     window.addEventListener('storage', onStorage);
     // También escuchar cambios en la misma pestaña con un evento custom
-    window.addEventListener('bistro_notif_changed', () => setPrefsClave(k => k + 1));
+    window.addEventListener('loyalpass_notif_changed', () => setPrefsClave(k => k + 1));
     return () => {
       window.removeEventListener('storage', onStorage);
-      window.removeEventListener('bistro_notif_changed', () => {});
+      window.removeEventListener('loyalpass_notif_changed', () => {});
     };
   }, []);
 

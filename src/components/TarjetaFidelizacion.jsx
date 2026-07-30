@@ -64,8 +64,8 @@ export function TarjetaFidelizacion({ cliente, nombreRestaurante, puntosTotales 
       {/* Cabecera: nombre del programa + nivel */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
         <div>
-          <p style={{ margin: 0, fontSize: '0.65rem', fontWeight: 600, opacity: 0.75, letterSpacing: '0.1em', textTransform: 'uppercase' }}>
-            Tarjeta de fidelización
+          <p style={{ margin: 0, fontSize: '0.65rem', fontWeight: 700, opacity: 0.85, letterSpacing: '0.12em', textTransform: 'uppercase' }}>
+            LoyalPass
           </p>
           <p style={{ margin: '2px 0 0', fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: '1.1rem' }}>
             {nombreRestaurante}

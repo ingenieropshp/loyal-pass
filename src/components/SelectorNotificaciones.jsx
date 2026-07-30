@@ -5,7 +5,7 @@
  * para cada restaurante donde está inscrito.
  *
  * Preferencias guardadas en localStorage con clave:
- *   bistro_notif_prefs → { [restaurante_id]: true/false }
+ *   loyalpass_notif_prefs → { [restaurante_id]: true/false }
  *
  * El GeofencingProvider lee estas preferencias para filtrar
  * qué restaurantes pasa al useGeofencing hook.
@@ -14,7 +14,7 @@
 import { useState, useEffect } from 'react';
 import { useIOS } from '../hooks/useIOS';
 
-const LS_KEY = 'bistro_notif_prefs';
+const LS_KEY = 'loyalpass_notif_prefs';
 
 // ── Leer/escribir preferencias ────────────────────────────────────────────────
 export function getNotifPrefs() {
@@ -27,7 +27,7 @@ function setNotifPref(restauranteId, activo) {
   prefs[restauranteId] = activo;
   localStorage.setItem(LS_KEY, JSON.stringify(prefs));
   // Notificar al GeofencingProvider (misma pestaña) que las prefs cambiaron
-  window.dispatchEvent(new Event('bistro_notif_changed'));
+  window.dispatchEvent(new Event('loyalpass_notif_changed'));
 }
 
 // ── Componente ────────────────────────────────────────────────────────────────

@@ -60,7 +60,7 @@ export const ResetPassword = ({ onDone }) => {
   return (
     <div style={styles.card}>
       <div style={styles.header}>
-        <h2 style={styles.title}>Nueva contraseña</h2>
+        <h2 style={styles.title}>Restablecer contraseña en LoyalPass</h2>
         <p style={styles.subtitle}>Elige una nueva contraseña para tu cuenta</p>
       </div>
 

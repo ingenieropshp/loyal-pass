@@ -18,7 +18,7 @@ main {
 }
 
 /* ===== HEADER ===== */
-.bistro-title {
+.brand-title {
   font-family: var(--font-display);
   font-weight: 800;
   font-size: 3.2rem;
@@ -27,7 +27,7 @@ main {
   line-height: 1;
 }
 
-.bistro-title .dot { color: var(--coral); }
+.brand-title .dot { color: var(--coral); }
 
 /* ===== PROXIMITY BADGE ===== */
 .proximity-badge {
@@ -139,6 +139,6 @@ main {
 
 /* ===== RESPONSIVE ===== */
 @media (max-width: 380px) {
-  .bistro-title  { font-size: 2.6rem; }
+  .brand-title  { font-size: 2.6rem; }
   .main-wrapper  { padding: 1rem 0.875rem 2.5rem; }
 }

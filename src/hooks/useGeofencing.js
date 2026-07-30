@@ -1,5 +1,5 @@
 /**
- * useGeofencing.js — Bistro Connect v4.0
+ * useGeofencing.js — LoyalPass v4.0
  *
  * CAMBIOS CLAVE vs v3:
  *  1. Sin cooldown de 2h → detección de BORDE (fuera→dentro) en el SW

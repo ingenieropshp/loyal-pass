@@ -36,7 +36,7 @@ export const BuscadorRestaurantes = ({ session, onLogout }) => {
         setRestaurantes(data || []);
 
         // ── Restaurantes donde el usuario YA está inscrito ────────────────
-        // Antes esto se leía de localStorage (bistro_multisede), lo que
+        // Antes esto se leía de localStorage (loyalpass_multisede), lo que
         // significaba que si el usuario borraba la app o cambiaba de
         // dispositivo, perdía la vista de "Mis restaurantes" aunque sus
         // puntos seguían intactos en la base de datos. Ahora se consulta
@@ -98,7 +98,7 @@ export const BuscadorRestaurantes = ({ session, onLogout }) => {
             </button>
           )}
         </div>
-        <h1 style={styles.title}>Bistro Connect<span style={styles.dot}>.</span></h1>
+        <h1 style={styles.title}>LoyalPass<span style={styles.dot}>.</span></h1>
         <p style={styles.subtitle}>Encuentra tu restaurante favorito</p>
       </header>
 
@@ -217,7 +217,7 @@ export const BuscadorRestaurantes = ({ session, onLogout }) => {
         )}
       </section>
 
-      <footer style={styles.footer}>Bistro Connect v2.9</footer>
+      <footer style={styles.footer}>LoyalPass v2.9</footer>
     </div>
   );
 };

@@ -200,12 +200,12 @@ export const AuthScreen = ({ restaurantId }) => {
         <h2 style={styles.title}>
           {modo === 'login'    && 'Inicia sesión'}
           {modo === 'register' && 'Crea tu cuenta'}
-          {modo === 'reset'    && 'Recuperar contraseña'}
+          {modo === 'reset'    && 'Recuperar contraseña en LoyalPass'}
         </h2>
         <p style={styles.subtitle}>
-          {modo === 'login'    && '¿Ya tienes cuenta? Ingresa con tu correo.'}
-          {modo === 'register' && 'Crea tu cuenta única para descubrir y unirte a restaurantes'}
-          {modo === 'reset'    && 'Te enviaremos un link a tu correo'}
+          {modo === 'login'    && 'Inicia sesión o regístrate para acumular puntos y obtener recompensas exclusivas con LoyalPass'}
+          {modo === 'register' && 'Crea tu cuenta única para descubrir y unirte a restaurantes con LoyalPass'}
+          {modo === 'reset'    && 'Te enviaremos un link a tu correo para restablecer tu contraseña'}
         </p>
       </div>
 

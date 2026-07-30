@@ -77,9 +77,9 @@ export const UserDashboard = ({
       const { data, error } = await supabase
         .from('clientes').select('*').eq('id', clienteId).maybeSingle();
       if (error || !data) {
-        const registros = JSON.parse(localStorage.getItem('bistro_multisede') || '{}');
+        const registros = JSON.parse(localStorage.getItem('loyalpass_multisede') || '{}');
         delete registros[restauranteId];
-        localStorage.setItem('bistro_multisede', JSON.stringify(registros));
+        localStorage.setItem('loyalpass_multisede', JSON.stringify(registros));
         window.location.reload();
       } else {
         setCliente(data);

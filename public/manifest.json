@@ -1,41 +1,25 @@
 {
-  "name": "Bistro Connect",
-  "short_name": "Bistro",
-  "description": "Tu programa de fidelización en restaurantes",
+  "name": "LoyalPass — Tu Tarjeta Digital de Fidelización",
+  "short_name": "LoyalPass",
+  "description": "Acumula puntos y canjea recompensas exclusivas en tus restaurantes favoritos con LoyalPass.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
-  "orientation": "portrait-primary",
-  "background_color": "#F4F3F0",
+  "orientation": "portrait",
   "theme_color": "#E8563A",
-  "categories": ["food", "lifestyle"],
-  "lang": "es",
+  "background_color": "#FFFFFF",
   "icons": [
-    { "src": "/icons/icon-72.png",   "sizes": "72x72",   "type": "image/png", "purpose": "any" },
-    { "src": "/icons/icon-96.png",   "sizes": "96x96",   "type": "image/png", "purpose": "any" },
-    { "src": "/icons/icon-128.png",  "sizes": "128x128", "type": "image/png", "purpose": "any" },
-    { "src": "/icons/icon-144.png",  "sizes": "144x144", "type": "image/png", "purpose": "any maskable" },
-    { "src": "/icons/icon-152.png",  "sizes": "152x152", "type": "image/png", "purpose": "any" },
-    { "src": "/icons/icon-192.png",  "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
-    { "src": "/icons/icon-384.png",  "sizes": "384x384", "type": "image/png", "purpose": "any" },
-    { "src": "/icons/icon-512.png",  "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
-  ],
-  "screenshots": [
     {
-      "src": "/screenshots/home.png",
-      "sizes": "390x844",
+      "src": "/pwa-icon-192.png",
+      "sizes": "192x192",
       "type": "image/png",
-      "form_factor": "narrow",
-      "label": "Dashboard de fidelización"
-    }
-  ],
-  "shortcuts": [
+      "purpose": "any maskable"
+    },
     {
-      "name": "Confirmar llegada",
-      "short_name": "Llegada",
-      "description": "Confirma tu visita al restaurante",
-      "url": "/?action=checkin",
-      "icons": [{ "src": "/icons/icon-96.png", "sizes": "96x96" }]
+      "src": "/pwa-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
     }
   ]
 }

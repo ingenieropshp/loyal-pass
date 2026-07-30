@@ -6,6 +6,7 @@ import { RegistrationForm } from './components/RegistrationForm';
 import { SuccessCard }      from './components/manejarRegistro';
 import { UserDashboard }    from './components/UserDashboard';
 import { BuscadorRestaurantes } from './components/BuscadorRestaurantes';
+import { BrandLogo } from './components/BrandLogo';
 import { useLocation }      from './hooks/useLocation';
 import { supabase, buscarClienteEnRestaurante } from './services/supabaseClient';
 import './App.css';
@@ -41,7 +42,7 @@ function App() {
 
   const [clienteId,       setClienteId]       = useState(() => {
     if (!restauranteID) return null;
-    const registros = JSON.parse(localStorage.getItem('bistro_multisede') || '{}');
+    const registros = JSON.parse(localStorage.getItem('loyalpass_multisede') || '{}');
     return registros[restauranteID] || null;
   });
   const [nombreCliente,   setNombreCliente]    = useState('');
@@ -49,7 +50,7 @@ function App() {
   const [isRegisteredNow, setIsRegisteredNow]  = useState(false);
   const [isVerifyingUser, setIsVerifyingUser]  = useState(!!restauranteID);
   const [referidoPor,     setReferidoPor]      = useState('');
-  const [bistroLoc,       setBistroLoc]        = useState(null);
+  const [sedeActual,       setSedeActual]        = useState(null);
   const [sedeNoEncontrada, setSedeNoEncontrada] = useState(false);
 
   // ── Cargar sesión guardada + escuchar cambios de autenticación ─────────
@@ -120,10 +121,10 @@ function App() {
             restauranteId: sede.id,
           });
 
-          const registros = JSON.parse(localStorage.getItem('bistro_multisede') || '{}');
+          const registros = JSON.parse(localStorage.getItem('loyalpass_multisede') || '{}');
           if (cliente) {
             registros[restauranteID] = cliente.id;
-            localStorage.setItem('bistro_multisede', JSON.stringify(registros));
+            localStorage.setItem('loyalpass_multisede', JSON.stringify(registros));
 
             setClienteId(cliente.id);
             setNombreCliente(cliente.nombre);
@@ -131,7 +132,7 @@ function App() {
           } else {
             // Autenticado globalmente, pero aún NO inscrito en esta sede.
             delete registros[restauranteID];
-            localStorage.setItem('bistro_multisede', JSON.stringify(registros));
+            localStorage.setItem('loyalpass_multisede', JSON.stringify(registros));
             setClienteId(null);
           }
         } else if (clienteId) {
@@ -140,9 +141,9 @@ function App() {
             .eq('id', clienteId).maybeSingle();
 
           if (errorUser || !userDB) {
-            const registros = JSON.parse(localStorage.getItem('bistro_multisede') || '{}');
+            const registros = JSON.parse(localStorage.getItem('loyalpass_multisede') || '{}');
             delete registros[restauranteID];
-            localStorage.setItem('bistro_multisede', JSON.stringify(registros));
+            localStorage.setItem('loyalpass_multisede', JSON.stringify(registros));
             setClienteId(null);
           } else {
             setNombreCliente(userDB.nombre);
@@ -154,8 +155,8 @@ function App() {
           .from('conexion').select('*')
           .eq('restaurante_id', sede.id).maybeSingle();
 
-        if (gpsData) setBistroLoc({ ...gpsData, nombre: sede.nombre });
-        else setBistroLoc({ restaurante_id: sede.id, nombre: sede.nombre, latitud: null, longitud: null });
+        if (gpsData) setSedeActual({ ...gpsData, nombre: sede.nombre });
+        else setSedeActual({ restaurante_id: sede.id, nombre: sede.nombre, latitud: null, longitud: null });
       } catch (err) {
         console.error('Error en inicialización:', err);
       } finally {
@@ -171,7 +172,7 @@ function App() {
 
   useEffect(() => {
     if (!restauranteID || session?.user) return; // con sesión, el efecto de arriba ya maneja el clienteId
-    const registros    = JSON.parse(localStorage.getItem('bistro_multisede') || '{}');
+    const registros    = JSON.parse(localStorage.getItem('loyalpass_multisede') || '{}');
     const idEnEstaSede = registros[restauranteID] || null;
     if (idEnEstaSede !== clienteId) setClienteId(idEnEstaSede);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -180,14 +181,14 @@ function App() {
   // ── REALTIME: escuchar cambios de GPS/radio Y configuración en tiempo real ──
   useEffect(() => {
     // Solo activar cuando ya tenemos el ID del restaurante cargado
-    if (!bistroLoc?.restaurante_id) return;
+    if (!sedeActual?.restaurante_id) return;
 
-    const restauranteId = bistroLoc.restaurante_id;
+    const restauranteId = sedeActual.restaurante_id;
 
     // ── Canal 1: tabla `conexion` ─────────────────────────────────────────────
     // Escucha cambios de latitud, longitud y radio_aviso que hace el admin.
     // Cuando el admin mueve el pin en el mapa o ajusta el radio, este canal
-    // recibe el UPDATE y actualiza bistroLoc → useLocation recalcula distancia.
+    // recibe el UPDATE y actualiza sedeActual → useLocation recalcula distancia.
     const chConexion = supabase
       .channel(`realtime-conexion-${restauranteId}`)
       .on(
@@ -200,7 +201,7 @@ function App() {
         },
         (payload) => {
           // Fusionar los nuevos valores GPS conservando el nombre y otros campos
-          setBistroLoc(prev => ({ ...prev, ...payload.new }));
+          setSedeActual(prev => ({ ...prev, ...payload.new }));
         }
       )
       .subscribe();
@@ -219,9 +220,9 @@ function App() {
           filter: `id=eq.${restauranteId}`, // solo este restaurante
         },
         (payload) => {
-          // Actualizar nombre y mensaje_promo en bistroLoc para que
+          // Actualizar nombre y mensaje_promo en sedeActual para que
           // config (useMemo) los recalcule automáticamente
-          setBistroLoc(prev => ({
+          setSedeActual(prev => ({
             ...prev,
             nombre:        payload.new.nombre        ?? prev.nombre,
             mensaje_promo: payload.new.mensaje_promo ?? prev.mensaje_promo,
@@ -235,25 +236,25 @@ function App() {
       supabase.removeChannel(chConexion);
       supabase.removeChannel(chConfig);
     };
-  }, [bistroLoc?.restaurante_id]); // Solo se re-ejecuta si cambia el restaurante
+  }, [sedeActual?.restaurante_id]); // Solo se re-ejecuta si cambia el restaurante
 
   const { distance: distancia, error: geoError } = useLocation(
-    bistroLoc?.latitud  ?? null,
-    bistroLoc?.longitud ?? null
+    sedeActual?.latitud  ?? null,
+    sedeActual?.longitud ?? null
   );
 
   const config = useMemo(() => ({
-    radioAviso:   bistroLoc?.radio_aviso ? Number(bistroLoc.radio_aviso) : 800,
-    mensaje:      bistroLoc?.mensaje_promo || 'CORTESÍA DISPONIBLE',
-    nombreBistro: bistroLoc?.nombre || restauranteID,
-  }), [bistroLoc, restauranteID]);
+    radioAviso:   sedeActual?.radio_aviso ? Number(sedeActual.radio_aviso) : 800,
+    mensaje:      sedeActual?.mensaje_promo || 'CORTESÍA DISPONIBLE',
+    nombreSede: sedeActual?.nombre || restauranteID,
+  }), [sedeActual, restauranteID]);
 
   const volverAlBuscador = () => { window.location.href = '/'; };
 
   const handleSuccess = (nuevoId, nombre, puntos) => {
-    const registros = JSON.parse(localStorage.getItem('bistro_multisede') || '{}');
+    const registros = JSON.parse(localStorage.getItem('loyalpass_multisede') || '{}');
     registros[restauranteID] = nuevoId;
-    localStorage.setItem('bistro_multisede', JSON.stringify(registros));
+    localStorage.setItem('loyalpass_multisede', JSON.stringify(registros));
     setClienteId(nuevoId);
     setNombreCliente(nombre);
     setPuntosCliente(puntos);
@@ -271,7 +272,7 @@ function App() {
     // restaurantes), al cerrar sesión limpiamos el mapa completo en vez de
     // solo la sede actual — si no, "Mis restaurantes" en el buscador
     // seguiría mostrando sedes de la cuenta anterior tras un cambio de usuario.
-    localStorage.removeItem('bistro_multisede');
+    localStorage.removeItem('loyalpass_multisede');
     setClienteId(null);
     setNombreCliente('');
     setPuntosCliente(0);
@@ -297,7 +298,7 @@ function App() {
     return (
       <div className="main-wrapper" style={{ justifyContent: 'center', padding: '2rem 1rem' }}>
         <header style={{ textAlign: 'center', margin: '0.5rem 0 1.5rem', width: '100%' }}>
-          <h1 className="bistro-title">Bistro Connect<span className="dot">.</span></h1>
+          <BrandLogo size={44} />
         </header>
         <ResetPassword onDone={() => {
           // Limpiamos el #access_token de la URL para que un refresco de
@@ -317,7 +318,7 @@ function App() {
   // "Descubre restaurantes".
   //
   // Si el usuario entró por un link/QR directo de un restaurante
-  // (?restaurante_id=... o ?r=...) y aún no tiene sesión, seguimos esperando (spinner) a que `bistroLoc`
+  // (?restaurante_id=... o ?r=...) y aún no tiene sesión, seguimos esperando (spinner) a que `sedeActual`
   // termine de cargar. AuthScreen SOLO crea/inicia la cuenta global (correo
   // + contraseña) — nunca inscribe en ningún restaurante. En cuanto la
   // sesión queda activa, este mismo componente vuelve a renderizar, el
@@ -325,7 +326,7 @@ function App() {
   // sede y, si no, se muestra "Crea tu perfil" (RegistrationForm) sin
   // perder el contexto del link/QR que escaneó.
   if (!session?.user) {
-    if (restauranteID && (isVerifyingUser || !bistroLoc) && !sedeNoEncontrada) {
+    if (restauranteID && (isVerifyingUser || !sedeActual) && !sedeNoEncontrada) {
       return (
         <div className="main-wrapper" style={{ justifyContent: 'center', gap: '1rem' }}>
           <div className="loader-spinner" />
@@ -336,10 +337,10 @@ function App() {
     return (
       <div className="main-wrapper" style={{ justifyContent: 'center', padding: '2rem 1rem' }}>
         <header style={{ textAlign: 'center', margin: '0.5rem 0 1.5rem', width: '100%' }}>
-          <h1 className="bistro-title">Bistro Connect<span className="dot">.</span></h1>
+          <BrandLogo size={44} />
         </header>
         <AuthScreen
-          restaurantId={sedeNoEncontrada ? null : bistroLoc?.restaurante_id}
+          restaurantId={sedeNoEncontrada ? null : sedeActual?.restaurante_id}
         />
       </div>
     );
@@ -365,7 +366,7 @@ function App() {
   }
 
   // ── Pantalla de carga ─────────────────────────────────────────────────────
-  if (isVerifyingUser || !bistroLoc) {
+  if (isVerifyingUser || !sedeActual) {
     return (
       <div className="main-wrapper" style={{ justifyContent: 'center', gap: '1rem' }}>
         <div className="loader-spinner" />
@@ -380,8 +381,8 @@ function App() {
   if (isRegisteredNow) {
     return (
       <SuccessCard
-        restauranteId={bistroLoc.restaurante_id}
-        nombreRestaurante={config.nombreBistro}
+        restauranteId={sedeActual.restaurante_id}
+        nombreRestaurante={config.nombreSede}
         nombreCliente={nombreCliente}
         clienteId={clienteId}
         puntosActuales={puntosCliente}
@@ -402,8 +403,8 @@ function App() {
       }}>← Buscador</button>
 
       <header style={{ textAlign: 'center', margin: '0.5rem 0 1.5rem', width: '100%' }}>
-        <h1 className="bistro-title">
-          {config.nombreBistro}<span className="dot">.</span>
+        <h1 className="brand-title">
+          {config.nombreSede}<span className="dot">.</span>
         </h1>
         {referidoPor && (
           <p style={{ marginTop: '0.4rem', fontSize: '0.8rem', opacity: 0.6 }}>
@@ -427,9 +428,9 @@ function App() {
                 : `${Math.round(distancia)} metros`}
             </div>
           </div>
-          {bistroLoc?.latitud && bistroLoc?.longitud && (
+          {sedeActual?.latitud && sedeActual?.longitud && (
             <a
-              href={`https://www.google.com/maps/dir/?api=1&destination=${bistroLoc.latitud},${bistroLoc.longitud}`}
+              href={`https://www.google.com/maps/dir/?api=1&destination=${sedeActual.latitud},${sedeActual.longitud}`}
               target="_blank"
               rel="noopener noreferrer"
               style={{
@@ -465,11 +466,11 @@ function App() {
       <main className="animate-fade-in">
         {clienteId ? (
           <UserDashboard
-            restauranteId={bistroLoc.restaurante_id}
+            restauranteId={sedeActual.restaurante_id}
             clienteId={clienteId}
             distancia={distancia}
             esCerca={esCerca}
-            nombreRestaurante={config.nombreBistro}
+            nombreRestaurante={config.nombreSede}
             onLogout={handleLogout}
           />
         ) : (
@@ -479,7 +480,7 @@ function App() {
           // inscripción local, explícita y controlada por el usuario.
           <RegistrationForm
             user={session.user}
-            restaurantId={bistroLoc.restaurante_id}
+            restaurantId={sedeActual.restaurante_id}
             referidoPor={referidoPor}
             onSuccess={handleSuccess}
           />
@@ -487,7 +488,7 @@ function App() {
       </main>
 
       <footer className="version-footer">
-        Bistro Connect v2.9 · {config.nombreBistro}
+        LoyalPass v2.9 · {config.nombreSede}
       </footer>
     </div>
   );
