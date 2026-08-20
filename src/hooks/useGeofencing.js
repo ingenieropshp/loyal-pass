@@ -15,6 +15,10 @@ const VAPID_PUBLIC_KEY  = import.meta.env.VITE_VAPID_PUBLIC_KEY;
 const SUPABASE_URL      = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
+// Ruta del sonido de "ping" que se reproduce al entrar al radio de un restaurante.
+// Debe existir físicamente en public/sounds/ping.mp3 para que Vite lo sirva tal cual.
+const SONIDO_PING_URL = '/sounds/ping.mp3';
+
 // ── VAPID helper ──────────────────────────────────────────────────────────────
 function urlBase64ToUint8Array(b64) {
   const pad  = '='.repeat((4 - (b64.length % 4)) % 4);
@@ -31,7 +35,88 @@ export function useGeofencing(restaurantes = []) {
   const swRegRef        = useRef(null);
   const restaurantesRef = useRef([]);
 
+  // ── Refs para el sonido de ping ────────────────────────────────────────────
+  // audioRef: instancia única del <audio>, se crea una sola vez (lazy) para no
+  //           recrear el objeto Audio en cada render.
+  const audioRef = useRef(null);
+  // audioDesbloqueadoRef: en iOS/Android los navegadores bloquean audio.play()
+  //           si no hubo una interacción del usuario (tap/click) antes. Esta
+  //           bandera indica si ya "desbloqueamos" el audio con un gesto real.
+  const audioDesbloqueadoRef = useRef(false);
+  // NOTA sobre duplicados: el control de "solo una vez por entrada" NO se
+  // maneja aquí. El Service Worker (sw.js) es la única fuente de verdad para
+  // la detección de borde fuera→dentro (usa su propio `estadoRango` interno)
+  // y nos avisa vía postMessage('GEOFENCE_ENTERED') solo cuando corresponde.
+  // Duplicar esa lógica en React causaría dos detecciones independientes que
+  // podrían desincronizarse (y notificaciones duplicadas), así que React solo
+  // reacciona al aviso del SW en vez de recalcular el borde por su cuenta.
+
   useEffect(() => { restaurantesRef.current = restaurantes; }, [restaurantes]);
+
+  // ── Obtener (o crear) la instancia de Audio, una sola vez ────────────────
+  const obtenerAudio = useCallback(() => {
+    if (!audioRef.current) {
+      audioRef.current = new Audio(SONIDO_PING_URL);
+      audioRef.current.preload = 'auto'; // pre-cargar el mp3 para reproducción instantánea
+    }
+    return audioRef.current;
+  }, []);
+
+  // ── Desbloquear audio en el primer gesto del usuario (requisito iOS/Android) ─
+  // Los navegadores móviles solo permiten reproducir audio mediante JS si esa
+  // reproducción ocurre como resultado directo (o muy cercano) de una interacción
+  // del usuario. Aprovechamos el primer tap/click en cualquier parte de la app
+  // para "primar" el audio: lo reproducimos y pausamos inmediatamente en silencio.
+  // A partir de ahí, el navegador nos deja reproducirlo programáticamente
+  // (por ejemplo, al detectar el geofence) sin que sea un gesto directo.
+  useEffect(() => {
+    const desbloquear = () => {
+      if (audioDesbloqueadoRef.current) return; // ya desbloqueado, nada que hacer
+      const audio = obtenerAudio();
+      const promesa = audio.play();
+      if (promesa?.then) {
+        promesa
+          .then(() => {
+            audio.pause();
+            audio.currentTime = 0;
+            audioDesbloqueadoRef.current = true;
+          })
+          .catch(() => {
+            // El navegador todavía lo bloqueó; se reintentará en el próximo gesto
+          });
+      } else {
+        audioDesbloqueadoRef.current = true;
+      }
+    };
+
+    // 'once: true' remueve el listener automáticamente tras el primer disparo exitoso;
+    // igual lo removemos manualmente en el cleanup por si el componente se desmonta antes.
+    window.addEventListener('touchend', desbloquear, { passive: true });
+    window.addEventListener('click',    desbloquear);
+
+    return () => {
+      window.removeEventListener('touchend', desbloquear);
+      window.removeEventListener('click',    desbloquear);
+    };
+  }, [obtenerAudio]);
+
+  // ── Reproducir el ping de forma segura (maneja el rechazo de la promesa) ──
+  const reproducirPing = useCallback(() => {
+    const audio = obtenerAudio();
+    try {
+      audio.currentTime = 0; // reiniciar por si quedó a mitad de reproducción de una vez anterior
+      const promesa = audio.play();
+      if (promesa?.catch) {
+        promesa.catch((err) => {
+          // Autoplay bloqueado (usuario aún no interactuó con la página) u otro
+          // error de reproducción. No rompemos el flujo de geofencing por esto.
+          console.warn('[Geofencing] No se pudo reproducir ping.mp3:', err.message);
+        });
+      }
+    } catch (err) {
+      console.warn('[Geofencing] Error al reproducir ping.mp3:', err.message);
+    }
+  }, [obtenerAudio]);
 
   // ── Enviar datos al SW ────────────────────────────────────────────────────
   const enviarAlSW = useCallback((type, payload) => {
@@ -99,25 +184,33 @@ export function useGeofencing(restaurantes = []) {
     }
   }, [enviarAlSW]);
 
-  // ── Escuchar REQUEST_LOCATION del SW (Periodic Sync despertó la app) ──────
+  // ── Escuchar mensajes del SW (REQUEST_LOCATION / GEOFENCE_ENTERED) ────────
   useEffect(() => {
     if (!('serviceWorker' in navigator)) return;
 
     const handleSWMessage = (event) => {
+      // El SW despertó por Periodic Sync y nos pide nuestra posición actual
       if (event.data?.type === 'REQUEST_LOCATION') {
-        // El SW nos pide nuestra posición actual → la obtenemos y se la enviamos
         navigator.geolocation?.getCurrentPosition((pos) => {
           enviarAlSW('LOCATION_UPDATE', {
             lat: pos.coords.latitude,
             lon: pos.coords.longitude,
           });
         }, () => {}, { maximumAge: 60_000 });
+        return;
+      }
+
+      // El SW detectó la entrada al radio de un restaurante (borde fuera→dentro)
+      // y ya mostró/mostrará la Notification nativa. Aquí solo reproducimos el
+      // ping, sincronizado exactamente con ese evento y sin recalcular nada.
+      if (event.data?.type === 'GEOFENCE_ENTERED') {
+        reproducirPing();
       }
     };
 
     navigator.serviceWorker.addEventListener('message', handleSWMessage);
     return () => navigator.serviceWorker.removeEventListener('message', handleSWMessage);
-  }, [enviarAlSW]);
+  }, [enviarAlSW, reproducirPing]);
 
   // ── Procesar posición GPS ─────────────────────────────────────────────────
   const procesarPosicion = useCallback((pos) => {
@@ -127,7 +220,10 @@ export function useGeofencing(restaurantes = []) {
     // Esto funciona incluso con la app en background porque el SW sigue vivo
     enviarAlSW('LOCATION_UPDATE', { lat: uLat, lon: uLon });
 
-    // También actualizar estado de React para el UI (badge "Estás aquí")
+    // También actualizar estado de React para el UI (badge "Estás aquí").
+    // Este cálculo es solo informativo para la interfaz: la detección real de
+    // "entrada" (borde fuera→dentro) que dispara sonido + notificación vive en
+    // el SW, que es quien recibe este mismo LOCATION_UPDATE arriba.
     const enRango = restaurantesRef.current
       .filter(r => {
         const rLat = parseFloat(r.latitud);

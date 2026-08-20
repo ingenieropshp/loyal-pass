@@ -9,7 +9,13 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@capacitor-community/background-geolocation": "^1.2.26",
+    "@capacitor/android": "^8.5.0",
+    "@capacitor/cli": "^8.5.0",
+    "@capacitor/core": "^8.5.0",
+    "@capacitor/ios": "^8.5.0",
     "@supabase/supabase-js": "^2.101.1",
+    "cordova-plugin-geofence": "^0.7.0",
     "firebase": "^12.11.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",

@@ -49,6 +49,28 @@ async function mostrarNotifGeofence(resto) {
   console.log(`[SW] 🔔 Notificación enviada: ${resto.nombre}`);
 }
 
+// ── Avisar a la página (React) que se detectó una entrada ────────────────────
+// El SW es la única fuente de verdad para el borde fuera→dentro (usa
+// estadoRango para no repetir). Le avisamos a todas las pestañas/ventanas
+// abiertas para que reproduzcan el sonido ping.mp3 en el momento exacto en
+// que ESTA notificación se muestra — así el audio queda sincronizado con la
+// notificación real y no se duplica el disparo de la detección de borde.
+async function notificarClientesEntrada(resto) {
+  const clientesAbiertos = await self.clients.matchAll({
+    type: 'window',
+    includeUncontrolled: true,
+  });
+  clientesAbiertos.forEach((cliente) => {
+    cliente.postMessage({
+      type: 'GEOFENCE_ENTERED',
+      payload: {
+        restaurante_id: resto.restaurante_id,
+        nombre:         resto.nombre,
+      },
+    });
+  });
+}
+
 // ── Verificar geofence contra una posición ────────────────────────────────────
 async function verificarGeofence(uLat, uLon) {
   if (restaurantesCacheados.length === 0) return;
@@ -72,6 +94,7 @@ async function verificarGeofence(uLat, uLon) {
     if (dentroAhora && !estabaAntes) {
       console.log(`[SW] 🟢 Entró al rango de ${resto.nombre} (${Math.round(distM)}m)`);
       await mostrarNotifGeofence(resto);
+      await notificarClientesEntrada(resto); // → dispara el ping.mp3 en la página
     }
 
     if (!dentroAhora && estabaAntes) {
