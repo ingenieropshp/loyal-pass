@@ -4,6 +4,16 @@
    - Verifica geofence internamente (sin Edge Function)
    - Muestra notificación en segundo plano
    - Periodic Background Sync para app cerrada (Chrome Android)
+   -----------------------------------------------------
+   NOTA (LoyalPass v5.0): este archivo NO se modificó. Con
+   useGeofencing.js v5, este SW solo se registra/usa cuando
+   Capacitor.isNativePlatform() === false, es decir, cuando la
+   PWA corre en un navegador web tradicional. En Android/iOS
+   nativos (WebView de Capacitor) el geofencing en 2do plano lo
+   maneja @capacitor-community/background-geolocation y las
+   notificaciones las dispara @capacitor/local-notifications
+   directamente desde useGeofencing.js — este SW nunca entra en
+   juego en esos casos.
    ===================================================== */
 
 const CACHE_NAME = 'bistro-connect-v3';
