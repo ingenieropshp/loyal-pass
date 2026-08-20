@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { GeofencingProvider } from './components/GeofencingProvider';
+import { BatteryOptimizationGuide } from './components/BatteryOptimizationGuide';
 import { AuthScreen }       from './components/AuthScreen';
 import { ResetPassword }    from './components/ResetPassword';
 import { RegistrationForm } from './components/RegistrationForm';
@@ -581,6 +582,10 @@ function AppConGeofencing() {
   return (
     <GeofencingProvider>
       <App />
+      {/* Vive fuera de <App/> a propósito: se auto-controla por completo vía
+          localStorage/Capacitor.isNativePlatform(), no necesita ningún
+          estado de App.jsx ni depende de en qué pantalla esté el usuario. */}
+      <BatteryOptimizationGuide />
     </GeofencingProvider>
   );
 }
