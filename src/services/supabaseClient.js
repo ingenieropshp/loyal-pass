@@ -223,4 +223,37 @@ export const registrarClienteEnRestaurante = async ({
   return nuevoCliente;
 };
 
+/**
+ * registrarLlegada
+ * ────────────────────────────────────────────────────────────────────────
+ * Registra en `visitas` que un cliente YA INSCRITO llegó al restaurante vía
+ * el flujo de QR — a diferencia de `registrarClienteEnRestaurante` (que crea
+ * la relación cliente↔restaurante la primera vez), esta función se llama
+ * en CADA escaneo del QR, incluyendo todas las visitas posteriores a la
+ * primera. No crea ni modifica la fila de `clientes`.
+ *
+ * Es "fire and forget" desde la perspectiva de la UI: si falla, no debe
+ * bloquear ni interrumpir al cliente (ya está adentro de la app, la
+ * llegada es un registro informativo para el restaurante, no un gate).
+ * Por eso atrapa su propio error y lo reporta por consola en vez de
+ * lanzarlo — quien llama puede ignorar el resultado con confianza.
+ */
+export const registrarLlegada = async ({ clienteId, restauranteId, origen = 'qr' }) => {
+  try {
+    const { error } = await supabase
+      .from('visitas')
+      .insert([{
+        cliente_id:     clienteId,
+        restaurante_id: restauranteId,
+        origen,               // 'qr' | 'gps' — de dónde vino el check-in
+        fecha:          new Date().toISOString(),
+      }]);
+    if (error) throw error;
+    return true;
+  } catch (err) {
+    console.error('[registrarLlegada] No se pudo registrar la visita:', err);
+    return false;
+  }
+};
+
 export default supabase;

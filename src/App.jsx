@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { GeofencingProvider } from './components/GeofencingProvider';
 import { AuthScreen }       from './components/AuthScreen';
 import { ResetPassword }    from './components/ResetPassword';
@@ -8,7 +8,7 @@ import { UserDashboard }    from './components/UserDashboard';
 import { BuscadorRestaurantes } from './components/BuscadorRestaurantes';
 import { BrandLogo } from './components/BrandLogo';
 import { useLocation }      from './hooks/useLocation';
-import { supabase, buscarClienteEnRestaurante } from './services/supabaseClient';
+import { supabase, buscarClienteEnRestaurante, registrarLlegada } from './services/supabaseClient';
 import './App.css';
 
 function App() {
@@ -18,7 +18,47 @@ function App() {
   // aceptando también ?r=<id-o-nombre> por compatibilidad con links/QRs
   // generados antes de este cambio — ambos apuntan a la misma sede.
   const idParamRaw = params.get('restaurante_id') || params.get('r');
-  const restauranteID = idParamRaw ? decodeURIComponent(idParamRaw).trim() : null;
+  const restauranteIDDeURL = idParamRaw ? decodeURIComponent(idParamRaw).trim() : null;
+
+  // CLAVE_ESCANEO_PENDIENTE: guarda el último restaurante escaneado por QR
+  // para que sobreviva aunque el usuario cierre la pestaña (ej. porque tuvo
+  // que ir a confirmar su correo) y vuelva a abrir la app días después SIN
+  // el ?restaurante_id= en la URL. Sin esto, ese contexto se perdería y el
+  // usuario terminaría en el buscador general en vez de directo en la sede
+  // que escaneó.
+  const CLAVE_ESCANEO_PENDIENTE = 'loyalpass_pending_scan';
+
+  // `restauranteID` prioriza la URL (un QR nuevo siempre gana), y solo si
+  // la URL no trae nada, cae al último escaneo pendiente guardado.
+  const [restauranteID, setRestauranteID] = useState(() => {
+    if (restauranteIDDeURL) return restauranteIDDeURL;
+    try {
+      const pendiente = JSON.parse(localStorage.getItem(CLAVE_ESCANEO_PENDIENTE) || 'null');
+      return pendiente?.restauranteId || null;
+    } catch { return null; }
+  });
+
+  // Si llega un ?restaurante_id= nuevo por la URL (un escaneo fresco),
+  // sincronizamos el estado y lo persistimos como "pendiente" — se limpia
+  // más abajo en cuanto la llegada queda registrada con éxito.
+  useEffect(() => {
+    if (restauranteIDDeURL && restauranteIDDeURL !== restauranteID) {
+      setRestauranteID(restauranteIDDeURL);
+    }
+    if (restauranteIDDeURL) {
+      localStorage.setItem(CLAVE_ESCANEO_PENDIENTE, JSON.stringify({
+        restauranteId: restauranteIDDeURL,
+        ts: Date.now(),
+      }));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [restauranteIDDeURL]);
+
+  // Evita registrar la misma llegada más de una vez por sesión de la
+  // pestaña (ej. si el componente vuelve a renderizar / StrictMode).
+  const llegadaRegistradaRef = useRef(null); // guarda `${clienteId}-${restauranteId}` ya procesado
+
+  const limpiarEscaneoPendiente = () => localStorage.removeItem(CLAVE_ESCANEO_PENDIENTE);
 
   // ── Sesión persistente de Supabase Auth ───────────────────────────────
   // `session` es null mientras no sabemos si hay un login guardado, y
@@ -52,6 +92,7 @@ function App() {
   const [referidoPor,     setReferidoPor]      = useState('');
   const [sedeActual,       setSedeActual]        = useState(null);
   const [sedeNoEncontrada, setSedeNoEncontrada] = useState(false);
+  const [llegadaConfirmada, setLlegadaConfirmada] = useState(false); // banner "✓ Llegada registrada"
 
   // ── Cargar sesión guardada + escuchar cambios de autenticación ─────────
   // getSession() lee el token que quedó en localStorage de una visita
@@ -178,6 +219,30 @@ function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [restauranteID, session?.user]);
 
+  // ── CHECK-IN AUTOMÁTICO POR QR (Caso 1 del flujo) ───────────────────────
+  // Si el usuario tiene sesión activa Y ya está inscrito en esta sede
+  // (clienteId resuelto), registramos la llegada sin pedirle NADA — ni
+  // login, ni confirmación. Esto corre tanto para el escaneo "en caliente"
+  // (llegó con el QR y ?restaurante_id= en la URL) como para el caso de
+  // haber recuperado un escaneo pendiente desde localStorage tras volver
+  // de confirmar su correo.
+  useEffect(() => {
+    if (!clienteId || !restauranteID || !session?.user) return;
+
+    const llaveIntento = `${clienteId}-${restauranteID}`;
+    if (llegadaRegistradaRef.current === llaveIntento) return; // ya procesado en esta sesión de la pestaña
+    llegadaRegistradaRef.current = llaveIntento;
+
+    (async () => {
+      const ok = await registrarLlegada({ clienteId, restauranteId: restauranteID, origen: 'qr' });
+      limpiarEscaneoPendiente();
+      if (ok) {
+        setLlegadaConfirmada(true);
+        setTimeout(() => setLlegadaConfirmada(false), 3500);
+      }
+    })();
+  }, [clienteId, restauranteID, session?.user]);
+
   // ── REALTIME: escuchar cambios de GPS/radio Y configuración en tiempo real ──
   useEffect(() => {
     // Solo activar cuando ya tenemos el ID del restaurante cargado
@@ -259,6 +324,13 @@ function App() {
     setNombreCliente(nombre);
     setPuntosCliente(puntos);
     setIsRegisteredNow(true);
+
+    // También cuenta como "llegada" — es la primera visita registrada del
+    // cliente en esta sede. Marcamos el intento ya procesado para que el
+    // efecto de check-in de arriba no lo vuelva a intentar por duplicado.
+    llegadaRegistradaRef.current = `${nuevoId}-${restauranteID}`;
+    registrarLlegada({ clienteId: nuevoId, restauranteId: restauranteID, origen: 'qr' });
+    limpiarEscaneoPendiente();
   };
 
   // ── Cerrar sesión ─────────────────────────────────────────────────────
@@ -414,6 +486,17 @@ function App() {
       </header>
 
       {geoError && <div className="error-alert">⚠️ {geoError}</div>}
+
+      {llegadaConfirmada && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: '8px',
+          background: 'rgba(60,160,90,0.12)', color: '#2f8a52',
+          border: '1px solid rgba(60,160,90,0.3)', borderRadius: 'var(--r-md)',
+          padding: '10px 14px', margin: '0 0 0.75rem', fontSize: '0.85rem', fontWeight: 600,
+        }}>
+          ✓ Llegada registrada — ¡bienvenido de nuevo!
+        </div>
+      )}
 
       {typeof distancia === 'number' ? (
         <div className={`proximity-badge${esCerca ? ' near' : ''}`}>
