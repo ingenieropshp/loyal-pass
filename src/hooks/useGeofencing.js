@@ -80,7 +80,17 @@ const SONIDO_NATIVO = 'mixkit_happy_bells_notification_937.wav';
 // creás sin sonido y luego querés agregarlo, el sistema ignora el cambio —
 // hay que crear el canal ANTES con el sonido ya incluido). Por eso creamos
 // un canal dedicado con SONIDO_NATIVO antes de la primera notificación.
-const CANAL_ID_GEOFENCE = 'geofence-cercania';
+// ⚠️ Los canales de notificación en Android son INMUTABLES una vez creados
+// en un celular — si cambias el sonido/importancia del canal en el código,
+// los celulares que YA tenían la app instalada con el canal viejo (sin
+// sonido, o con otra config) van a seguir usando esa versión vieja para
+// siempre, sin importar cuántas actualizaciones publiques. La única forma
+// de que tomen la config nueva es que el canal tenga un ID distinto — así
+// Android lo trata como un canal nuevo y lo crea desde cero, con el sonido
+// ya incluido. Por eso este ID lleva sufijo de versión: si en el futuro
+// vuelves a tocar sonido/importancia/vibración del canal, sube el sufijo
+// (v3, v4...) en vez de reusar el mismo ID.
+const CANAL_ID_GEOFENCE = 'geofence-cercania-v2';
 
 async function asegurarCanalNotificacionNativo() {
   if (Capacitor.getPlatform() !== 'android') return; // los canales son un concepto exclusivo de Android
