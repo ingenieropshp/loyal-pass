@@ -92,6 +92,23 @@ const SONIDO_NATIVO = 'mixkit_happy_bells_notification_937.wav';
 // (v3, v4...) en vez de reusar el mismo ID.
 const CANAL_ID_GEOFENCE = 'geofence-cercania-v2';
 
+// Helper: la Web Notifications API no existe en WebViews de Android, así que
+// cualquier acceso a `Notification` debe pasar por estas funciones.
+const soportaNotifWeb = () =>
+  typeof window !== 'undefined' && 'Notification' in window;
+
+const permisoNotifWeb = () =>
+  soportaNotifWeb() ? Notification.permission : 'default';
+
+const pedirPermisoNotifWeb = async () => {
+  if (!soportaNotifWeb()) return 'denied';
+  try {
+    return await Notification.requestPermission();
+  } catch {
+    return 'denied';
+  }
+};
+
 async function asegurarCanalNotificacionNativo() {
   if (Capacitor.getPlatform() !== 'android') return; // los canales son un concepto exclusivo de Android
 
@@ -239,7 +256,7 @@ export function useGeofencing(restaurantes = []) {
       }));
       reg.active?.postMessage({ type: 'CACHE_RESTAURANTS', payload: { restaurantes: restosSW } });
 
-      if (Notification.permission === 'granted' && VAPID_PUBLIC_KEY) {
+      if (permisoNotifWeb() === 'granted' && VAPID_PUBLIC_KEY) {
         let sub = await reg.pushManager.getSubscription();
         if (!sub) {
           sub = await reg.pushManager.subscribe({
@@ -320,12 +337,15 @@ export function useGeofencing(restaurantes = []) {
   }, [enviarAlSW]);
 
   const iniciarRastreoWeb = useCallback(async (listaRestaurantes) => {
+
+    // En nativo nunca debe entrar al camino web; el global Notification no existe en WebView Android.
+    if (esNativo) return;
     if (!('geolocation' in navigator)) { setEstado('no_soportado'); return; }
 
     setEstado('solicitando_permiso');
 
-    if (Notification.permission === 'default') {
-      await Notification.requestPermission();
+    if (permisoNotifWeb() === 'default') {
+      await pedirPermisoNotifWeb();
     }
 
     await inicializarSW(listaRestaurantes);
