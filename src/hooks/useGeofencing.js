@@ -63,7 +63,6 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Capacitor, registerPlugin } from '@capacitor/core';
 import { LocalNotifications } from '@capacitor/local-notifications';
 import { supabase } from '../services/supabaseClient';
-import { getDeviceId } from '../utils/deviceId';
 
 // Proxy hacia la implementación NATIVA del plugin (Java/Swift), instalada
 // vía `npx cap sync`. No importa el paquete '@capacitor-community/
@@ -145,18 +144,47 @@ async function asegurarCanalNotificacionNativo() {
   }
 }
 
+// ── Cliente vinculado a un restaurante puntual ────────────────────────────────
+// Lee el mismo mapa multi-sede que ya mantiene App.jsx en localStorage:
+// 'loyalpass_multisede' → { [restauranteId]: clienteId }. Se lee directo de
+// localStorage (no como prop) a propósito: este hook geofencea VARIAS sedes
+// a la vez, así que no existe un único "clienteId global" — hay que resolver
+// el cliente correcto por cada restaurante, y hacerlo así mantiene al
+// GeofencingProvider autosuficiente (no depende del estado interno de App.jsx).
+function obtenerClienteIdLocal(restauranteId) {
+  try {
+    const registros = JSON.parse(localStorage.getItem('loyalpass_multisede') || '{}');
+    return registros?.[restauranteId] ?? null;
+  } catch {
+    return null;
+  }
+}
+
 // ── Registro de métrica de proximidad (Supabase `metricas_proximidad`) ────────
 // Fire-and-forget: nunca debe bloquear ni romper el flujo de notificación
 // si Supabase falla (sin conexión, RLS, etc.) — por eso el .catch silencioso
 // con solo un warn en consola.
-function registrarMetricaProximidad(restauranteId, origen) {
+//
+// ⚠️ Las columnas reales de `metricas_proximidad` son: restaurante_id,
+// cliente_id, distancia_metros, exito, origen, fecha (con default en la
+// propia tabla). ANTES este insert mandaba `device_id`/`detectado_en`, que
+// no existen en el schema — Supabase devolvía error en cada llamada y se
+// tragaba silenciosamente (el .catch solo hace un warn), así que ninguna
+// detección de fondo (nativo o PWA) llegaba nunca a la tabla. AdminMetrics
+// solo recibía filas desde UserDashboard.jsx (botón "Confirmar llegada"),
+// nunca desde la detección pasiva por geofencing.
+//
+// `clienteId` puede venir null (usuario detectado por geofencing pero aún
+// sin fila en `clientes` para este restaurante) — la columna lo admite.
+function registrarMetricaProximidad({ restauranteId, origen, distanciaMetros = null, exito = null, clienteId = null }) {
   supabase
     .from('metricas_proximidad')
     .insert({
-      restaurante_id: restauranteId,
-      device_id:      getDeviceId(),
+      restaurante_id:   restauranteId,
+      cliente_id:       clienteId,
+      distancia_metros: distanciaMetros,
+      exito,
       origen,               // 'nativo' | 'web'
-      detectado_en:   new Date().toISOString(),
     })
     .then(({ error }) => {
       if (error) {
@@ -355,7 +383,16 @@ export function useGeofencing(restaurantes = []) {
         // registramos la métrica cuando el SW nos avisa que ya confirmó la
         // entrada, para no duplicar la lógica de "fuera→dentro" en dos lados.
         const restauranteId = event.data?.payload?.restaurante_id;
-        if (restauranteId) registrarMetricaProximidad(restauranteId, 'web');
+        // Sin distancia exacta disponible en este mensaje (sw.js no la manda) —
+        // GEOFENCE_ENTERED solo se dispara al confirmar entrada, así que exito=true.
+        if (restauranteId) {
+          registrarMetricaProximidad({
+            restauranteId,
+            origen:    'web',
+            exito:     true,
+            clienteId: obtenerClienteIdLocal(restauranteId),
+          });
+        }
       }
     };
 
@@ -501,7 +538,13 @@ export function useGeofencing(restaurantes = []) {
       if (dentroAhora && !estabaAntes) {
         console.log(`[Geofencing] 🟢 Entró al rango de ${resto.nombre} (${Math.round(dist)}m)`);
         mostrarNotifNativa(resto);
-        registrarMetricaProximidad(rId, 'nativo');
+        registrarMetricaProximidad({
+          restauranteId:    rId,
+          origen:           'nativo',
+          distanciaMetros:  Math.round(dist),
+          exito:            dentroAhora,
+          clienteId:        obtenerClienteIdLocal(rId),
+        });
       }
       if (!dentroAhora && estabaAntes) {
         console.log(`[Geofencing] 🔴 Salió del rango de ${resto.nombre}`);
