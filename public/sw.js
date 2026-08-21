@@ -14,6 +14,16 @@
    notificaciones las dispara @capacitor/local-notifications
    directamente desde useGeofencing.js — este SW nunca entra en
    juego en esos casos.
+
+   NOTA (Web Push app cerrada): este archivo TAMPOCO se modificó
+   para ese requerimiento. Los listeners 'push' y 'notificationclick'
+   de abajo YA cubrían ese caso desde v3.0 — no había que agregarlos,
+   solo dejar que la nueva Edge Function (supabase/functions/
+   send-proximity-push) les mande un payload con esta forma:
+     { titulo, cuerpo, icono, urlMenu, restauranteId, puntosLlegada }
+   que es exactamente lo que el handler 'push' de más abajo ya
+   espera. Ver el mensaje de acompañamiento para el detalle de qué
+   sí cambió en el resto del sistema.
    ===================================================== */
 
 const CACHE_NAME = 'bistro-connect-v3';
@@ -182,6 +192,9 @@ self.addEventListener('message', async (event) => {
 });
 
 // ── Push: recibir notificación del servidor (app cerrada) ─────────────────────
+// Este es el camino que usa la nueva Edge Function `send-proximity-push`.
+// Payload esperado (ver esa función): { titulo, cuerpo, icono, urlMenu,
+// restauranteId, puntosLlegada }. Ya funcionaba así desde v3.0 — no se tocó.
 self.addEventListener('push', (event) => {
   if (!event.data) return;
   let payload = {};

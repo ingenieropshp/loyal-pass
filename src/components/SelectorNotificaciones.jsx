@@ -9,12 +9,30 @@
  *
  * El GeofencingProvider lee estas preferencias para filtrar
  * qué restaurantes pasa al useGeofencing hook.
+ *
+ * ── CAMBIOS (Web Push con app cerrada) ─────────────────────────────────────
+ * Al conceder permiso, además de lo que ya hacía, ahora:
+ *   1. Se suscribe al pushManager del navegador (navigator.serviceWorker.ready
+ *      + pushManager.subscribe con la VAPID public key).
+ *   2. Guarda/actualiza esa suscripción directamente en la tabla
+ *      `push_subscriptions` de Supabase, upsert por `endpoint` (única forma
+ *      confiable de deduplicar sin sistema de login — ver deviceId.js).
+ * Esto es INDEPENDIENTE del guardado que ya hacía useGeofencing.js vía la
+ * Edge Function 'save-push-subscription' — no se tocó ni se removió ese
+ * flujo; este es un guardado adicional/directo pedido explícitamente.
+ * Si terminan duplicando función, lo natural a futuro es unificar en uno
+ * solo (recomiendo el de aquí, por ser upsert idempotente).
+ * ────────────────────────────────────────────────────────────────────────────
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useIOS } from '../hooks/useIOS';
+import { supabase } from '../services/supabaseClient';
+import { getDeviceId } from '../utils/deviceId';
 
 const LS_KEY = 'loyalpass_notif_prefs';
+
+const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY;
 
 // Helper seguro para obtener el permiso sin romper en WebView/Android nativo
 function getBrowserPermission() {
@@ -22,6 +40,13 @@ function getBrowserPermission() {
     return Notification.permission;
   }
   return 'default'; // Fallback seguro para WebView / Capacitor
+}
+
+// ── VAPID helper (formato requerido por pushManager.subscribe) ────────────────
+function urlBase64ToUint8Array(b64) {
+  const pad  = '='.repeat((4 - (b64.length % 4)) % 4);
+  const base = (b64 + pad).replace(/-/g, '+').replace(/_/g, '/');
+  return new Uint8Array([...atob(base)].map(c => c.charCodeAt(0)));
 }
 
 // ── Leer/escribir preferencias ────────────────────────────────────────────────
@@ -36,6 +61,62 @@ function setNotifPref(restauranteId, activo) {
   localStorage.setItem(LS_KEY, JSON.stringify(prefs));
   // Notificar al GeofencingProvider (misma pestaña) que las prefs cambiaron
   window.dispatchEvent(new Event('loyalpass_notif_changed'));
+}
+
+// ── Suscripción Web Push → Supabase (`push_subscriptions`) ────────────────────
+// Se exporta por si en el futuro quieren refrescarla desde otro punto de la
+// app (ej. al iniciar sesión). No se llama a nada de esto en WebView nativo:
+// esNativo se resuelve más abajo vía useIOS/Capacitor.isNativePlatform, y en
+// ese entorno 'Notification'/'serviceWorker' + pushManager ni siquiera están.
+export async function suscribirPushYGuardar(restauranteId = null) {
+  if (typeof window === 'undefined') return { ok: false, motivo: 'sin_window' };
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+    return { ok: false, motivo: 'no_soportado' };
+  }
+  if (!VAPID_PUBLIC_KEY) {
+    console.warn('[SelectorNotificaciones] Falta VITE_VAPID_PUBLIC_KEY');
+    return { ok: false, motivo: 'sin_vapid_key' };
+  }
+
+  try {
+    const reg = await navigator.serviceWorker.ready;
+
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) {
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly:      true,
+        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+      });
+    }
+
+    // Usa la Edge Function que YA existe y funciona (misma que llama
+    // useGeofencing.js en inicializarSW) — no escribas directo a la tabla,
+    // así hay un solo camino de guardado y un solo esquema real.
+    const resp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/save-push-subscription`, {
+      method:  'POST',
+      headers: {
+        'Content-Type':  'application/json',
+        'apikey':        import.meta.env.VITE_SUPABASE_ANON_KEY,
+        'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+      },
+      body: JSON.stringify({
+        subscription: sub.toJSON(),
+        restauranteId,
+      }),
+    });
+
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      console.warn('[SelectorNotificaciones] Error guardando suscripcion:', err);
+      return { ok: false, motivo: 'error_edge_function', error: err };
+    }
+
+    console.log('[SelectorNotificaciones] 🔔 Suscripción push guardada');
+    return { ok: true };
+  } catch (err) {
+    console.warn('[SelectorNotificaciones] Error en suscripción push:', err.message);
+    return { ok: false, motivo: 'excepcion', error: err };
+  }
 }
 
 // ── Componente ────────────────────────────────────────────────────────────────
@@ -69,12 +150,25 @@ export function SelectorNotificaciones({ restaurantes = [] }) {
     }
   }, [restaurantes]);
 
-  const pedirPermiso = async () => {
+  // Si el permiso ya estaba concedido de antes (ej. recarga de página),
+  // aseguramos que la suscripción siga viva y guardada — los navegadores
+  // pueden rotar el endpoint de vez en cuando.
+  useEffect(() => {
+    if (permiso === 'granted' && !iosNoInstalado) {
+      suscribirPushYGuardar();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [permiso, iosNoInstalado]);
+
+  const pedirPermiso = useCallback(async () => {
     if (typeof window !== 'undefined' && 'Notification' in window) {
       const resultado = await Notification.requestPermission();
       setPermiso(resultado);
+      if (resultado === 'granted') {
+        await suscribirPushYGuardar();
+      }
     }
-  };
+  }, []);
 
   const toggleRestaurante = (id) => {
     const nuevoValor = !prefs[id];

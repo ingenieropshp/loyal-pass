@@ -1,5 +1,22 @@
 /**
- * useGeofencing.js — LoyalPass v5.3
+ * useGeofencing.js — LoyalPass v5.4
+ *
+ * CAMBIOS CLAVE vs v5.3 (Web Push app cerrada):
+ *  - Se agrega el registro en la tabla `metricas_proximidad` de Supabase
+ *    cada vez que se detecta una entrada al rango (borde fuera→dentro),
+ *    tanto en el camino nativo (verificarGeofenceNativo) como en el web
+ *    (donde la detección de borde vive en sw.js, así que acá solo se
+ *    registra la métrica al recibir el postMessage 'GEOFENCE_ENTERED').
+ *  - Esto NO reemplaza ni modifica el cálculo de proximidad existente en
+ *    ninguno de los dos caminos — solo agrega un insert de auditoría no
+ *    bloqueante (fire-and-forget, con .catch silencioso) junto a lo que ya
+ *    disparaba la notificación.
+ *  - IMPORTANTE (léelo antes de asumir que esto resuelve "geofencing con
+ *    la app 100% cerrada"): estos inserts SOLO ocurren mientras el hook
+ *    está montado (app abierta o, en nativo, con el watcher de background
+ *    activo). Con la app completamente cerrada no hay JS corriendo que
+ *    pueda leer el GPS ni escribir esta tabla — ver la Edge Function
+ *    `send-proximity-push` para el otro extremo de ese problema.
  *
  * CAMBIOS CLAVE vs v5.2:
  *  - Canal de notificación dedicado en Android (createChannel) con
@@ -45,6 +62,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Capacitor, registerPlugin } from '@capacitor/core';
 import { LocalNotifications } from '@capacitor/local-notifications';
+import { supabase } from '../services/supabaseClient';
+import { getDeviceId } from '../utils/deviceId';
 
 // Proxy hacia la implementación NATIVA del plugin (Java/Swift), instalada
 // vía `npx cap sync`. No importa el paquete '@capacitor-community/
@@ -124,6 +143,26 @@ async function asegurarCanalNotificacionNativo() {
   } catch (err) {
     console.warn('[Geofencing] Error creando canal de notificación:', err.message);
   }
+}
+
+// ── Registro de métrica de proximidad (Supabase `metricas_proximidad`) ────────
+// Fire-and-forget: nunca debe bloquear ni romper el flujo de notificación
+// si Supabase falla (sin conexión, RLS, etc.) — por eso el .catch silencioso
+// con solo un warn en consola.
+function registrarMetricaProximidad(restauranteId, origen) {
+  supabase
+    .from('metricas_proximidad')
+    .insert({
+      restaurante_id: restauranteId,
+      device_id:      getDeviceId(),
+      origen,               // 'nativo' | 'web'
+      detectado_en:   new Date().toISOString(),
+    })
+    .then(({ error }) => {
+      if (error) {
+        console.warn('[Geofencing] Error registrando metrica_proximidad:', error.message);
+      }
+    });
 }
 
 // ── VAPID helper (solo camino web) ────────────────────────────────────────────
@@ -311,6 +350,12 @@ export function useGeofencing(restaurantes = []) {
       }
       if (event.data?.type === 'GEOFENCE_ENTERED') {
         reproducirPing();
+        // La detección de borde para el camino web vive en sw.js (única
+        // fuente de verdad allá — ver estadoRango en ese archivo). Acá solo
+        // registramos la métrica cuando el SW nos avisa que ya confirmó la
+        // entrada, para no duplicar la lógica de "fuera→dentro" en dos lados.
+        const restauranteId = event.data?.payload?.restaurante_id;
+        if (restauranteId) registrarMetricaProximidad(restauranteId, 'web');
       }
     };
 
@@ -456,6 +501,7 @@ export function useGeofencing(restaurantes = []) {
       if (dentroAhora && !estabaAntes) {
         console.log(`[Geofencing] 🟢 Entró al rango de ${resto.nombre} (${Math.round(dist)}m)`);
         mostrarNotifNativa(resto);
+        registrarMetricaProximidad(rId, 'nativo');
       }
       if (!dentroAhora && estabaAntes) {
         console.log(`[Geofencing] 🔴 Salió del rango de ${resto.nombre}`);
