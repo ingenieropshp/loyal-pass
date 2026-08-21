@@ -259,60 +259,48 @@ export const UserDashboard = ({
   };
 
   // ── Confirmar llegada con PIN ───────────────────────────────────────────
+  // Todo el trabajo (validar PIN, sumar puntos, rotar el PIN y registrar el
+  // historial) ocurre atómicamente en el servidor vía RPC — el cliente ya
+  // no lee ni escribe `clientes` directamente, así que no puede saltarse la
+  // validación del PIN desde las devtools. La RPC nunca devuelve el PIN
+  // nuevo: eso solo lo ve el mesero en el panel admin.
   const manejarConfirmacion = async () => {
     setProcesando(true);
     try {
-      const { data: db, error } = await supabase
-        .from('clientes').select('pin_individual, puntos').eq('id', clienteId).single();
-      if (error || !db) throw new Error();
-
-      if (pinIngresado !== db.pin_individual) {
-        alert('❌ PIN incorrecto. Solicita el código al mesero.');
-        return;
-      }
-
-      const nuevosPuntos = (db.puntos || 0) + puntosLlegada;
-      const tienePremio  = nuevosPuntos >= metaPuntos;
-
-      const updates = {
-        puntos:        nuevosPuntos,
-        ultima_visita: new Date().toISOString(),
-      };
-
-      const { error: errUpdate } = await supabase
-        .from('clientes').update(updates).eq('id', clienteId);
-      if (errUpdate) throw errUpdate;
-
-      setCliente(prev => ({ ...prev, ...updates, pin_individual: db.pin_individual }));
-
-      // NOTA: antes aquí se generaba un cupón automático "Premio por visitas"
-      // directo a la tabla `cupones`, sin recompensa asociada y sin pasar por
-      // la función RPC de canje. Se eliminó porque quedó duplicado con el
-      // catálogo de recompensas (CatalogoRecompensas.jsx / canjear_recompensa):
-      // ahora, al llegar a la meta de puntos, el cliente simplemente ve
-      // disponibles sus recompensas en el catálogo y las canjea desde ahí.
-
-      // Registrar en historial de puntos — fire-and-forget: no bloquea la
-      // alerta de éxito, que ya puede mostrarse con los puntos actualizados.
-      supabase.from('historial_puntos').insert([{
-        cliente_id:     clienteId,
-        restaurante_id: restauranteId,
-        tipo:           'visita',
-        puntos:         puntosLlegada,
-        descripcion:    `Visita confirmada en ${nombreRestaurante}`,
-      }]).then(({ error: errHistorial }) => {
-        if (errHistorial) console.error('[manejarConfirmacion] Error en historial_puntos:', errHistorial);
-        setHistorialKey(k => k + 1); // refrescar historial cuando termine
+      const { data, error } = await supabase.rpc('confirmar_llegada_pin', {
+        p_cliente_id: clienteId,
+        p_pin:        pinIngresado,
       });
+      if (error) throw error;
 
-      if (tienePremio) alert(`🎉 ¡Llegaste a ${metaPuntos} puntos! Ya puedes canjear tu premio en el catálogo de recompensas.`);
-      else alert(`✅ ¡+${puntosLlegada} puntos! Ahora tienes ${nuevosPuntos} puntos.`);
+      const fila = data?.[0];
+      if (!fila) throw new Error('SIN_RESPUESTA');
+
+      setCliente(prev => ({
+        ...prev,
+        puntos:        fila.puntos,
+        ultima_visita: new Date().toISOString(),
+      }));
+
+      // El historial ya quedó insertado dentro de la RPC — solo refrescamos
+      // el listado en pantalla.
+      setHistorialKey(k => k + 1);
+
+      if (fila.tiene_premio) {
+        alert(`🎉 ¡Llegaste a ${fila.meta_puntos} puntos! Ya puedes canjear tu premio en el catálogo de recompensas.`);
+      } else {
+        alert(`✅ ¡+${puntosLlegada} puntos! Ahora tienes ${fila.puntos} puntos.`);
+      }
 
       setMostrarPin(false);
       setPinIngresado('');
       setEsCerca(false);
-    } catch {
-      alert('Error al actualizar puntos. Intenta de nuevo.');
+    } catch (err) {
+      if (err.message === 'PIN_INCORRECTO') {
+        alert('❌ PIN incorrecto. Solicita el código al mesero.');
+      } else {
+        alert('Error al actualizar puntos. Intenta de nuevo.');
+      }
     } finally {
       setProcesando(false);
     }
