@@ -1,5 +1,5 @@
 /**
- * SelectorNotificaciones.jsx
+ * SelectorNotificaciones.jsx — Pisingo / LoyalPass
  *
  * Permite al usuario activar/desactivar notificaciones de geofencing
  * para cada restaurante donde está inscrito.
@@ -15,6 +15,14 @@ import { useState, useEffect } from 'react';
 import { useIOS } from '../hooks/useIOS';
 
 const LS_KEY = 'loyalpass_notif_prefs';
+
+// Helper seguro para obtener el permiso sin romper en WebView/Android nativo
+function getBrowserPermission() {
+  if (typeof window !== 'undefined' && 'Notification' in window) {
+    return Notification.permission;
+  }
+  return 'default'; // Fallback seguro para WebView / Capacitor
+}
 
 // ── Leer/escribir preferencias ────────────────────────────────────────────────
 export function getNotifPrefs() {
@@ -33,14 +41,14 @@ function setNotifPref(restauranteId, activo) {
 // ── Componente ────────────────────────────────────────────────────────────────
 export function SelectorNotificaciones({ restaurantes = [] }) {
   const [prefs,    setPrefs]    = useState(getNotifPrefs());
-  const [permiso,  setPermiso]  = useState(Notification.permission); // 'default'|'granted'|'denied'
+  const [permiso,  setPermiso]  = useState(getBrowserPermission);
   const [visible,  setVisible]  = useState(false);
   const { isIOS, isStandalone } = useIOS();
-  const iosNoInstalado = isIOS && !isStandalone; // iPhone sin agregar a inicio: push no puede funcionar todavía
+  const iosNoInstalado = isIOS && !isStandalone;
 
-  // Sincronizar permiso real del navegador
+  // Sincronizar permiso real del navegador de forma segura
   useEffect(() => {
-    setPermiso(Notification.permission);
+    setPermiso(getBrowserPermission());
   }, [visible]);
 
   // Cuando se monta: activar por defecto los restaurantes inscritos si no hay prefs previas
@@ -49,8 +57,9 @@ export function SelectorNotificaciones({ restaurantes = [] }) {
     const prefsActuales = getNotifPrefs();
     let cambio = false;
     restaurantes.forEach(r => {
-      if (prefsActuales[r.id] === undefined) {
-        prefsActuales[r.id] = true; // activado por defecto
+      const id = r.id || r.restaurante_id;
+      if (id && prefsActuales[id] === undefined) {
+        prefsActuales[id] = true;
         cambio = true;
       }
     });
@@ -61,8 +70,10 @@ export function SelectorNotificaciones({ restaurantes = [] }) {
   }, [restaurantes]);
 
   const pedirPermiso = async () => {
-    const resultado = await Notification.requestPermission();
-    setPermiso(resultado);
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      const resultado = await Notification.requestPermission();
+      setPermiso(resultado);
+    }
   };
 
   const toggleRestaurante = (id) => {
@@ -73,22 +84,28 @@ export function SelectorNotificaciones({ restaurantes = [] }) {
 
   const activarTodos = () => {
     const nuevas = {};
-    restaurantes.forEach(r => { nuevas[r.id] = true; setNotifPref(r.id, true); });
+    restaurantes.forEach(r => {
+      const id = r.id || r.restaurante_id;
+      if (id) { nuevas[id] = true; setNotifPref(id, true); }
+    });
     setPrefs(prev => ({ ...prev, ...nuevas }));
   };
 
   const desactivarTodos = () => {
     const nuevas = {};
-    restaurantes.forEach(r => { nuevas[r.id] = false; setNotifPref(r.id, false); });
+    restaurantes.forEach(r => {
+      const id = r.id || r.restaurante_id;
+      if (id) { nuevas[id] = false; setNotifPref(id, false); }
+    });
     setPrefs(prev => ({ ...prev, ...nuevas }));
   };
 
-  const activados = restaurantes.filter(r => prefs[r.id] !== false).length;
+  const activados = restaurantes.filter(r => prefs[r.id || r.restaurante_id] !== false).length;
 
   if (restaurantes.length === 0) return null;
 
   return (
-    <div style={{ margin: '1rem 0' }}>
+    <div style={{ margin: '1rem 0', listStyle: 'none', padding: 0 }}>
 
       {/* ── Botón para mostrar/ocultar ──────────────────────────────────── */}
       <button
@@ -101,18 +118,22 @@ export function SelectorNotificaciones({ restaurantes = [] }) {
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           fontSize: '0.88rem', fontWeight: 600,
           color: 'var(--text, #1a1a1a)',
+          listStyle: 'none'
         }}
       >
-        <span>🔔 Notificaciones de cercanía</span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          🔔 Notificaciones de cercanía
+        </span>
         <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <span style={{
             fontSize: '0.75rem', fontWeight: 700, padding: '2px 8px',
             background: activados > 0 ? '#E8563A' : '#ccc',
             color: 'white', borderRadius: 20,
+            display: 'inline-block'
           }}>
             {activados}/{restaurantes.length}
           </span>
-          <span style={{ fontSize: '0.8rem', opacity: 0.5 }}>{visible ? '▲' : '▼'}</span>
+          <span style={{ fontSize: '0.8rem', opacity: 0.5, display: 'inline-block' }}>{visible ? '▲' : '▼'}</span>
         </span>
       </button>
 
@@ -131,23 +152,29 @@ export function SelectorNotificaciones({ restaurantes = [] }) {
               padding: '10px 14px', marginBottom: 12,
               background: '#fff3cd', borderRadius: 10,
               fontSize: '0.82rem', color: '#7d5900',
+              display: 'flex', alignItems: 'flex-start', gap: '8px'
             }}>
-              ⚠️ Las notificaciones están bloqueadas en tu navegador.
-              Ve a <strong>Configuración → Permisos del sitio</strong> y actívalas para esta página.
+              <span>⚠️</span>
+              <div>
+                Las notificaciones están bloqueadas en tu navegador.
+                Ve a <strong>Configuración → Permisos del sitio</strong> y actívalas para esta página.
+              </div>
             </div>
           )}
 
-          {/* iPhone sin instalar: el permiso de notificaciones no funciona todavía.
-              Mostramos las instrucciones de instalación en vez del botón, que
-              en este estado no haría nada útil y confundiría al usuario. */}
+          {/* iPhone sin instalar */}
           {iosNoInstalado && (
             <div style={{
               padding: '10px 14px', marginBottom: 12,
               background: '#fff3cd', borderRadius: 10,
               fontSize: '0.82rem', color: '#7d5900',
+              display: 'flex', alignItems: 'flex-start', gap: '8px'
             }}>
-              📲 En iPhone, primero agrega la app a tu pantalla de inicio
-              (Compartir → Agregar a inicio) para poder activar las notificaciones.
+              <span>📲</span>
+              <div>
+                En iPhone, primero agrega la app a tu pantalla de inicio
+                (Compartir → Agregar a inicio) para poder activar las notificaciones.
+              </div>
             </div>
           )}
 
@@ -163,9 +190,10 @@ export function SelectorNotificaciones({ restaurantes = [] }) {
                   padding: '9px 18px', background: '#E8563A', color: 'white',
                   border: 'none', borderRadius: 10, fontWeight: 700,
                   fontSize: '0.82rem', cursor: 'pointer', width: '100%',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px'
                 }}
               >
-                🔔 Activar notificaciones
+                <span>🔔</span> Activar notificaciones
               </button>
             </div>
           )}
@@ -194,13 +222,14 @@ export function SelectorNotificaciones({ restaurantes = [] }) {
           </div>
 
           {/* Lista de restaurantes con toggle */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, listStyle: 'none', padding: 0, margin: 0 }}>
             {restaurantes.map(r => {
-              const activo = prefs[r.id] !== false;
+              const id = r.id || r.restaurante_id;
+              const activo = prefs[id] !== false;
               return (
                 <div
-                  key={r.id}
-                  onClick={() => permiso !== 'denied' && toggleRestaurante(r.id)}
+                  key={id}
+                  onClick={() => permiso !== 'denied' && toggleRestaurante(id)}
                   style={{
                     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                     padding: '12px 14px',
@@ -208,14 +237,15 @@ export function SelectorNotificaciones({ restaurantes = [] }) {
                     border: `1px solid ${activo ? 'rgba(232,86,58,0.2)' : 'rgba(0,0,0,0.07)'}`,
                     borderRadius: 12, cursor: permiso !== 'denied' ? 'pointer' : 'default',
                     transition: 'all 0.15s',
+                    listStyle: 'none'
                   }}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <span style={{ fontSize: '1.2rem' }}>🍽️</span>
+                    <span style={{ fontSize: '1.2rem', lineHeight: 1 }}>🍽️</span>
                     <div>
                       <p style={{ margin: 0, fontWeight: 600, fontSize: '0.88rem' }}>{r.nombre}</p>
-                      <p style={{ margin: 0, fontSize: '0.72rem', opacity: 0.5 }}>
-                        {activo ? '📍 Te avisamos cuando estés cerca' : 'Notificaciones desactivadas'}
+                      <p style={{ margin: 0, fontSize: '0.72rem', opacity: 0.5, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        {activo ? 'Te avisamos cuando estés cerca' : 'Notificaciones desactivadas'}
                       </p>
                     </div>
                   </div>
