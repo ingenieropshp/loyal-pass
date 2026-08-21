@@ -239,20 +239,52 @@ export const registrarClienteEnRestaurante = async ({
  * lanzarlo — quien llama puede ignorar el resultado con confianza.
  */
 export const registrarLlegada = async ({ clienteId, restauranteId, origen = 'qr' }) => {
+  // Saneamos el payload antes de mandarlo: un restauranteId con espacios,
+  // comillas o comas sueltas puede romper el filtro/insert de PostgREST y
+  // devolver un 400. trim() + normalización de espacios evita ese caso sin
+  // tocar el valor real (no se re-codifica aquí porque supabase-js ya se
+  // encarga de escapar la URL — solo limpiamos basura de entrada).
+  const payload = {
+    cliente_id:     clienteId,
+    restaurante_id: typeof restauranteId === 'string' ? restauranteId.trim() : restauranteId,
+    origen,               // 'qr' | 'gps' — de dónde vino el check-in
+    fecha:          new Date().toISOString(),
+  };
+
+  let ok = false;
   try {
-    const { error } = await supabase
+    const { error, status, statusText } = await supabase
       .from('visitas')
-      .insert([{
-        cliente_id:     clienteId,
-        restaurante_id: restauranteId,
-        origen,               // 'qr' | 'gps' — de dónde vino el check-in
-        fecha:          new Date().toISOString(),
-      }]);
-    if (error) throw error;
-    return true;
+      .insert([payload]);
+
+    if (error) {
+      // Log descriptivo: payload exacto que se mandó + el detalle completo
+      // que devuelve Supabase/PostgREST (mensaje, código, hint, status HTTP)
+      // — esto es lo que hay que mirar en consola para depurar un 400/500.
+      console.error('[registrarLlegada] Falló el insert en `visitas`:', {
+        payloadEnviado: payload,
+        httpStatus:     status,
+        httpStatusText: statusText,
+        mensaje:        error.message,
+        detalles:       error.details,
+        codigo:         error.code,
+        ayuda:          error.hint,
+      });
+    } else {
+      ok = true;
+    }
   } catch (err) {
-    console.error('[registrarLlegada] No se pudo registrar la visita:', err);
-    return false;
+    // Errores de red (sin conexión, CORS, etc.) — no vienen del objeto `error`
+    // de arriba, sino que rompen la promesa directamente.
+    console.error('[registrarLlegada] Fallo de red al registrar la visita:', {
+      payloadEnviado: payload,
+      error: err?.message || err,
+    });
+  } finally {
+    // Pase lo que pase, esta función NUNCA lanza — es "fire and forget": la
+    // llegada es informativa para el restaurante, no debe bloquear ni
+    // congelar la UI del cliente si la API falla.
+    return ok;
   }
 };
 

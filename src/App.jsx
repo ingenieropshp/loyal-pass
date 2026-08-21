@@ -19,7 +19,19 @@ function App() {
   // aceptando también ?r=<id-o-nombre> por compatibilidad con links/QRs
   // generados antes de este cambio — ambos apuntan a la misma sede.
   const idParamRaw = params.get('restaurante_id') || params.get('r');
-  const restauranteIDDeURL = idParamRaw ? decodeURIComponent(idParamRaw).trim() : null;
+  // Saneamos el valor: URLSearchParams ya decodifica %20 → espacio, pero
+  // dejamos un decodeURIComponent extra por si llega doblemente codificado
+  // (algunos generadores de QR lo hacen). Colapsamos espacios repetidos y
+  // quitamos comas/comillas — caracteres que rompen el filtro .ilike() de
+  // PostgREST si el nombre del restaurante los trae (ej. "101, Bistro").
+  const sanitizarParametroRestaurante = (valor) => {
+    if (!valor) return null;
+    let limpio = valor;
+    try { limpio = decodeURIComponent(limpio); } catch { /* ya estaba decodificado */ }
+    limpio = limpio.trim().replace(/\s+/g, ' ').replace(/[,"']/g, '');
+    return limpio || null;
+  };
+  const restauranteIDDeURL = sanitizarParametroRestaurante(idParamRaw);
 
   // CLAVE_ESCANEO_PENDIENTE: guarda el último restaurante escaneado por QR
   // para que sobreviva aunque el usuario cierre la pestaña (ej. porque tuvo
@@ -228,21 +240,42 @@ function App() {
   // haber recuperado un escaneo pendiente desde localStorage tras volver
   // de confirmar su correo.
   useEffect(() => {
-    if (!clienteId || !restauranteID || !session?.user) return;
+    // Se agrega la espera por `sedeActual?.restaurante_id` (el UUID real,
+    // resuelto contra la tabla `configuracion`) en vez de solo `restauranteID`
+    // (el parámetro crudo de la URL, que puede ser un slug/nombre — ver el
+    // fallback `ilike('nombre', restauranteID)` más arriba). Si `visitas.
+    // restaurante_id` es de tipo uuid, mandarle el nombre en texto plano
+    // provoca un 400 de Postgres. Esperamos a que `sedeActual` ya esté
+    // resuelto antes de intentar el insert.
+    if (!clienteId || !sedeActual?.restaurante_id || !session?.user) return;
 
-    const llaveIntento = `${clienteId}-${restauranteID}`;
+    const restauranteIdReal = sedeActual.restaurante_id; // UUID real, no el slug de la URL
+    const llaveIntento = `${clienteId}-${restauranteIdReal}`;
     if (llegadaRegistradaRef.current === llaveIntento) return; // ya procesado en esta sesión de la pestaña
     llegadaRegistradaRef.current = llaveIntento;
 
     (async () => {
-      const ok = await registrarLlegada({ clienteId, restauranteId: restauranteID, origen: 'qr' });
-      limpiarEscaneoPendiente();
-      if (ok) {
-        setLlegadaConfirmada(true);
-        setTimeout(() => setLlegadaConfirmada(false), 3500);
+      let ok = false;
+      try {
+        // registrarLlegada() ya captura sus propios errores internamente y
+        // nunca lanza (ver supabaseClient.js) — este try/catch es una
+        // segunda capa de seguridad por si algo entre medio (ej. el propio
+        // await) fallara de forma inesperada, para que NUNCA se congele la
+        // pantalla del cliente por un 400/500 en el registro de la visita.
+        ok = await registrarLlegada({ clienteId, restauranteId: restauranteIdReal, origen: 'qr' });
+      } catch (err) {
+        console.error('[App] Error inesperado al registrar la llegada por QR:', {
+          clienteId, restauranteId: restauranteIdReal, error: err?.message || err,
+        });
+      } finally {
+        limpiarEscaneoPendiente();
+        if (ok) {
+          setLlegadaConfirmada(true);
+          setTimeout(() => setLlegadaConfirmada(false), 3500);
+        }
       }
     })();
-  }, [clienteId, restauranteID, session?.user]);
+  }, [clienteId, restauranteID, sedeActual?.restaurante_id, session?.user]);
 
   // ── REALTIME: escuchar cambios de GPS/radio Y configuración en tiempo real ──
   useEffect(() => {
@@ -329,8 +362,12 @@ function App() {
     // También cuenta como "llegada" — es la primera visita registrada del
     // cliente en esta sede. Marcamos el intento ya procesado para que el
     // efecto de check-in de arriba no lo vuelva a intentar por duplicado.
-    llegadaRegistradaRef.current = `${nuevoId}-${restauranteID}`;
-    registrarLlegada({ clienteId: nuevoId, restauranteId: restauranteID, origen: 'qr' });
+    // Usamos sedeActual.restaurante_id (UUID real) en vez de restauranteID
+    // (el slug/nombre crudo de la URL) por la misma razón que en el efecto
+    // de check-in: `visitas.restaurante_id` espera un uuid.
+    const restauranteIdReal = sedeActual?.restaurante_id || restauranteID;
+    llegadaRegistradaRef.current = `${nuevoId}-${restauranteIdReal}`;
+    registrarLlegada({ clienteId: nuevoId, restauranteId: restauranteIdReal, origen: 'qr' });
     limpiarEscaneoPendiente();
   };
 
