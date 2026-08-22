@@ -308,6 +308,18 @@ export const UserDashboard = ({
       setPinIngresado('');
       setEsCerca(false);
     } catch (err) {
+      // Log descriptivo — mismo criterio que registrarLlegada() en
+      // supabaseClient.js: sin esto, un 400/500 de la RPC solo se ve en
+      // consola como "Failed to load resource", sin el mensaje/código real
+      // que devuelve Postgres, y hay que adivinar en vez de leerlo.
+      console.error('[manejarConfirmacion] Error en confirmar_llegada_pin:', {
+        clienteId,
+        pinEnviado: pinIngresado,
+        mensaje:    err.message,
+        detalles:   err.details,
+        codigo:     err.code,
+        ayuda:      err.hint,
+      });
       if (err.message === 'PIN_INCORRECTO') {
         alert('❌ PIN incorrecto. Solicita el código al mesero.');
       } else {
