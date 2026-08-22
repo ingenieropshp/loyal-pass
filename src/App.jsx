@@ -360,14 +360,23 @@ function App() {
     setIsRegisteredNow(true);
 
     // También cuenta como "llegada" — es la primera visita registrada del
-    // cliente en esta sede. Marcamos el intento ya procesado para que el
-    // efecto de check-in de arriba no lo vuelva a intentar por duplicado.
-    // Usamos sedeActual.restaurante_id (UUID real) en vez de restauranteID
-    // (el slug/nombre crudo de la URL) por la misma razón que en el efecto
-    // de check-in: `visitas.restaurante_id` espera un uuid.
-    const restauranteIdReal = sedeActual?.restaurante_id || restauranteID;
-    llegadaRegistradaRef.current = `${nuevoId}-${restauranteIdReal}`;
-    registrarLlegada({ clienteId: nuevoId, restauranteId: restauranteIdReal, origen: 'qr' });
+    // cliente en esta sede.
+    //
+    // ⚠️ Usamos sedeActual.restaurante_id (UUID real) y NUNCA restauranteID
+    // (el slug/nombre crudo de la URL) — visitas.restaurante_id es uuid, y
+    // mandarle texto plano (ej. "101 Bistro") revienta con 400 "invalid
+    // input syntax for type uuid". Antes había un fallback `|| restauranteID`
+    // que sí lo hacía si sedeActual todavía no había cargado en el momento
+    // exacto en que termina el registro — era la causa real del 400 que
+    // aparecía en consola. Si todavía no cargó, simplemente NO registramos
+    // acá: el efecto de check-in de arriba corre de nuevo en cuanto
+    // `sedeActual` esté listo (depende de `clienteId`, que ya se actualiza
+    // abajo) y lo registra ahí, con el UUID real garantizado.
+    if (sedeActual?.restaurante_id) {
+      const restauranteIdReal = sedeActual.restaurante_id;
+      llegadaRegistradaRef.current = `${nuevoId}-${restauranteIdReal}`;
+      registrarLlegada({ clienteId: nuevoId, restauranteId: restauranteIdReal, origen: 'qr' });
+    }
     limpiarEscaneoPendiente();
   };
 

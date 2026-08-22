@@ -146,15 +146,24 @@ async function asegurarCanalNotificacionNativo() {
 
 // ── Cliente vinculado a un restaurante puntual ────────────────────────────────
 // Lee el mismo mapa multi-sede que ya mantiene App.jsx en localStorage:
-// 'loyalpass_multisede' → { [restauranteId]: clienteId }. Se lee directo de
-// localStorage (no como prop) a propósito: este hook geofencea VARIAS sedes
-// a la vez, así que no existe un único "clienteId global" — hay que resolver
-// el cliente correcto por cada restaurante, y hacerlo así mantiene al
-// GeofencingProvider autosuficiente (no depende del estado interno de App.jsx).
-function obtenerClienteIdLocal(restauranteId) {
+// 'loyalpass_multisede'. Se lee directo de localStorage (no como prop) a
+// propósito: este hook geofencea VARIAS sedes a la vez, así que no existe
+// un único "clienteId global" — hay que resolver el cliente correcto por
+// cada restaurante, y hacerlo así mantiene al GeofencingProvider
+// autosuficiente (no depende del estado interno de App.jsx).
+//
+// ⚠️ OJO: App.jsx guarda esa clave usando `restauranteID`, el parámetro
+// CRUDO de la URL del QR — que puede ser el uuid real (?restaurante_id=)
+// o el nombre en texto plano (?r=, por compatibilidad con QRs viejos, ver
+// comentario de `sanitizarParametroRestaurante` en App.jsx). No hay forma
+// de saber desde acá cuál usó el QR que escaneó este cliente, así que
+// probamos las dos claves posibles antes de rendirnos.
+function obtenerClienteIdLocal({ restauranteId, nombre } = {}) {
   try {
     const registros = JSON.parse(localStorage.getItem('loyalpass_multisede') || '{}');
-    return registros?.[restauranteId] ?? null;
+    if (restauranteId && registros[restauranteId] != null) return registros[restauranteId];
+    if (nombre && registros[nombre] != null) return registros[nombre];
+    return null;
   } catch {
     return null;
   }
@@ -386,11 +395,12 @@ export function useGeofencing(restaurantes = []) {
         // Sin distancia exacta disponible en este mensaje (sw.js no la manda) —
         // GEOFENCE_ENTERED solo se dispara al confirmar entrada, así que exito=true.
         if (restauranteId) {
+          const restoMatch = restaurantesRef.current.find(r => r.restaurante_id === restauranteId);
           registrarMetricaProximidad({
             restauranteId,
             origen:    'web',
             exito:     true,
-            clienteId: obtenerClienteIdLocal(restauranteId),
+            clienteId: obtenerClienteIdLocal({ restauranteId, nombre: restoMatch?.nombre }),
           });
         }
       }
@@ -543,7 +553,7 @@ export function useGeofencing(restaurantes = []) {
           origen:           'nativo',
           distanciaMetros:  Math.round(dist),
           exito:            dentroAhora,
-          clienteId:        obtenerClienteIdLocal(rId),
+          clienteId:        obtenerClienteIdLocal({ restauranteId: rId, nombre: resto.nombre }),
         });
       }
       if (!dentroAhora && estabaAntes) {
