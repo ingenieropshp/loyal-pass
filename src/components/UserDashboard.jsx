@@ -38,6 +38,16 @@ export const UserDashboard = ({
   const [recompensaACanjear, setRecompensaACanjear] = useState(null);
   const [historialKey,       setHistorialKey]       = useState(0); // fuerza re-render del historial
   const pinInputRef = useRef(null);
+  // Guardia contra doble-envío del PIN. `procesando` (useState) no alcanza
+  // por sí solo: React agrupa/aplica el re-render de forma asíncrona, así
+  // que un doble-tap muy rápido en el botón puede disparar manejarConfirmacion()
+  // dos o más veces ANTES de que el atributo `disabled` del botón se
+  // actualice en el DOM. Un ref sí se actualiza de forma síncrona e
+  // inmediata, así que bloquea la reentrada sin depender del ciclo de
+  // render — se vio en producción: 5 llamadas casi simultáneas a la RPC con
+  // el mismo PIN, donde solo la primera coincidía (las siguientes ya veían
+  // el PIN rotado por la primera y fallaban con PIN_INCORRECTO).
+  const enviandoPinRef = useRef(false);
 
   // Sincronizar esCerca cuando cambia la distancia desde App.jsx
   useEffect(() => {
@@ -265,6 +275,8 @@ export const UserDashboard = ({
   // validación del PIN desde las devtools. La RPC nunca devuelve el PIN
   // nuevo: eso solo lo ve el mesero en el panel admin.
   const manejarConfirmacion = async () => {
+    if (enviandoPinRef.current) return; // ya hay una confirmación en vuelo — ignorar el reintento
+    enviandoPinRef.current = true;
     setProcesando(true);
     try {
       const { data, error } = await supabase.rpc('confirmar_llegada_pin', {
@@ -302,6 +314,7 @@ export const UserDashboard = ({
         alert('Error al actualizar puntos. Intenta de nuevo.');
       }
     } finally {
+      enviandoPinRef.current = false;
       setProcesando(false);
     }
   };
