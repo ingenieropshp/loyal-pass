@@ -1,0 +1,29 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24"
+    android:tint="#FFFFFF">
+    <!--
+        Ícono de notificación (small icon) para Android.
+
+        REGLAS de Android para este tipo de ícono (a diferencia del ícono
+        de la app):
+          1. Debe ser una silueta simple de UN SOLO color — Android ignora
+             cualquier color/relleno que definas y lo pinta él mismo (en
+             blanco en la barra de estado, o con tu color de marca si lo
+             configuras aparte). Por eso NO lleva gradientes ni degradados
+             como sí tiene ic_launcher_foreground.xml.
+          2. Solo importa el CANAL ALFA (la forma/silueta) — el color de
+             relleno de abajo (#FFFFFF) es solo para que se vea bien en el
+             preview del editor; en el dispositivo Android lo re-pinta.
+          3. Debe ser un dibujo simple y reconocible en tamaño pequeño
+             (se muestra a ~24dp en la barra de estado).
+
+        Es un pin de ubicación (Material "place"), acorde al tema de avisos
+        de cercanía a un comercio.
+    -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M12,2C8.13,2 5,5.13 5,9c0,5.25 7,13 7,13s7,-7.75 7,-13C19,5.13 15.87,2 12,2zM12,11.5c-1.38,0 -2.5,-1.12 -2.5,-2.5s1.12,-2.5 2.5,-2.5 2.5,1.12 2.5,2.5 -1.12,2.5 -2.5,2.5z" />
+</vector>
