@@ -7,6 +7,19 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
 
+    <!-- ── Agregado para geofencing en 2do plano con @capgo/background-geolocation ── -->
+
+    <!-- Android 9+ (API 28+): declarar que la app corre un foreground service -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+
+    <!-- Android 14+ (API 34+): desde esta versión hay que declarar el TIPO
+         específico de foreground service además del genérico de arriba;
+         sin esta línea el tracking en 2do plano falla solo en Android 14+ -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+
+    <!-- Android 13+ (API 33+): las notificaciones locales requieren permiso runtime -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
@@ -39,6 +52,18 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths"></meta-data>
         </provider>
+
+        <!-- ── Agregado para geofencing en 2do plano ──────────────────────────
+             Servicio del plugin que mantiene vivas las geocercas con la app
+             cerrada. VERIFICA después de correr `npx cap sync android`: si el
+             plugin ya lo inyectó automáticamente en este archivo, verás una
+             entrada <service> duplicada — en ese caso borra esta que agregué
+             manualmente y deja solo la que generó el sync. -->
+        <service
+            android:name="com.capgo.backgroundgeolocation.BackgroundGeolocationService"
+            android:foregroundServiceType="location"
+            android:exported="false" />
+
     </application>
 
 </manifest>

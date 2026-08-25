@@ -15,6 +15,7 @@
     "@capacitor/core": "^8.5.0",
     "@capacitor/ios": "^8.5.0",
     "@capacitor/local-notifications": "^8.3.1",
+    "@capgo/background-geolocation": "^8.4.3",
     "@supabase/supabase-js": "^2.101.1",
     "capacitor-native-settings": "^8.2.0",
     "firebase": "^12.11.0",
