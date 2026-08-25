@@ -8,14 +8,13 @@
 
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { supabase }                    from '../services/supabaseClient';
-import { useGeofencing }               from '../hooks/useGeofencing';
+import { useGeofencingCapgo }          from '../hooks/useGeofencingCapgo';
 import { getNotifPrefs }               from './SelectorNotificaciones';
 
 const GeofencingContext = createContext({
-  estado:        'idle',
-  dentroDeRango: [],
-  restaurantes:  [],
-  suscripcion:   null,
+  estado:           'idle',
+  comerciosActivos: [],
+  restaurantes:     [],
 });
 
 export const useGeofencingContext = () => useContext(GeofencingContext);
@@ -120,11 +119,39 @@ export function GeofencingProvider({ children }) {
     return restaurantes.filter(r => prefs[r.restaurante_id] !== false);
   }, [restaurantes, prefsClave]);
 
-  // useGeofencing solo se activa con los restaurantes que el usuario eligió
-  const { estado, dentroDeRango } = useGeofencing(restaurantesFiltrados);
+  // useGeofencingCapgo espera { id, nombre, latitude, longitude, radius };
+  // restaurantesFiltrados trae { restaurante_id, nombre, latitud, longitud,
+  // radio_aviso } — el mismo mapeo que ya se validó manualmente con el
+  // arnés de prueba (PruebaGeofencingCapgo.jsx, ya retirado).
+  const comerciosMapeados = useMemo(
+    () =>
+      restaurantesFiltrados.map(r => ({
+        id:        r.restaurante_id,
+        nombre:    r.nombre,
+        latitude:  r.latitud,
+        longitude: r.longitud,
+        radius:    r.radio_aviso || 100,
+      })),
+    [restaurantesFiltrados]
+  );
+
+  const { estado, comerciosActivos, iniciar, detener } = useGeofencingCapgo(comerciosMapeados);
+
+  // (Re)registra las geocercas nativas cada vez que cambia la lista de
+  // comercios a monitorear (carga inicial, cambio de preferencias del
+  // usuario, o actualización en tiempo real de coordenadas). Si falla
+  // (permiso denegado, navegador web, etc.) queda registrado en consola
+  // vía useGeofencingCapgo — nunca bloquea el render de la app.
+  useEffect(() => {
+    if (comerciosMapeados.length > 0) {
+      iniciar(comerciosMapeados);
+    }
+    return () => { detener(); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [comerciosMapeados]);
 
   return (
-    <GeofencingContext.Provider value={{ estado, dentroDeRango, restaurantes: restaurantesFiltrados }}>
+    <GeofencingContext.Provider value={{ estado, comerciosActivos, restaurantes: restaurantesFiltrados }}>
       {children}
     </GeofencingContext.Provider>
   );

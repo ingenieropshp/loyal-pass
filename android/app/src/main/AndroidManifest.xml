@@ -53,17 +53,6 @@
                 android:resource="@xml/file_paths"></meta-data>
         </provider>
 
-        <!-- ── Agregado para geofencing en 2do plano ──────────────────────────
-             Servicio del plugin que mantiene vivas las geocercas con la app
-             cerrada. VERIFICA después de correr `npx cap sync android`: si el
-             plugin ya lo inyectó automáticamente en este archivo, verás una
-             entrada <service> duplicada — en ese caso borra esta que agregué
-             manualmente y deja solo la que generó el sync. -->
-        <service
-            android:name="com.capgo.backgroundgeolocation.BackgroundGeolocationService"
-            android:foregroundServiceType="location"
-            android:exported="false" />
-
     </application>
 
 </manifest>
