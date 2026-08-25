@@ -1,193 +1,308 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+/**
+ * useGeofencing.js — LoyalPass
+ * ─────────────────────────────────────────────────────────────────────────
+ * Geofencing NATIVO (iOS/Android) con @capgo/background-geolocation:
+ *
+ *  - setupGeofencing() + addGeofence() por comercio: el sistema operativo
+ *    (Core Location en iOS / Geofencing API en Android) vigila el radio a
+ *    nivel de SO, dispara 'geofenceTransition' y despierta el proceso
+ *    incluso con la app cerrada — sin mantener el JS ni el GPS activos
+ *    todo el tiempo.
+ *
+ *  - addWatcher() de bajo consumo (distanceFilter alto) usado SOLO para
+ *    mantener actualizada la lista `proximos` que consume la UI. Está
+ *    desacoplado por completo de la detección de entrada/salida: esa la
+ *    resuelve el sistema operativo vía las geocercas nativas de arriba,
+ *    el watcher no interviene en absoluto en esa lógica.
+ *
+ * Este archivo consolida en un único hook lo que antes vivía dividido en
+ * dos versiones inconsistentes entre sí (una con la interfaz de retorno
+ * correcta pero API del plugin mal invocada — `addGeofences` en plural,
+ * campo `id` que no coincidía con `restaurante_id`, evento
+ * `transitionType`; y otra, useGeofencingCapgo.js, con la API real del
+ * plugin pero sin la interfaz que exige GeofencingProvider.jsx). Mantiene
+ * la interfaz de retorno exigida:
+ *   { dentroDeRango, estado, proximos, notifInApp, limpiarNotifInApp }
+ */
+
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { Capacitor } from '@capacitor/core';
 import { BackgroundGeolocation } from '@capgo/background-geolocation';
 import { LocalNotifications } from '@capacitor/local-notifications';
 
-const CHANNEL_ID = 'geofence-alerts';
+const CANAL_ID_GEOFENCE = 'geofence-alerts';
 
-export function useGeofencing(restaurantes = [], usuarioId = null) {
-  const [dentroDeRango, setDentroDeRango] = useState(false);
-  const [estado, setEstado] = useState('cargando'); // 'cargando' | 'activo' | 'sin_permiso' | 'error'
+// Piso recomendado por Apple/plugins de geofencing nativo: por debajo de
+// ~100m el margen de error normal del GPS (10-50m en ciudad, peor entre
+// edificios altos) genera falsos negativos/positivos.
+const RADIO_MINIMO_METROS = 100;
+
+// LocalNotifications.schedule requiere id numérico (int32) por notificación.
+// Con un hash estable, un mismo comercio siempre reemplaza su notificación
+// anterior en vez de acumular duplicados.
+function idNumericoDesde(texto) {
+  const str = String(texto);
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = (hash * 31 + str.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash) || 1;
+}
+
+function distanciaMetros(lat1, lon1, lat2, lon2) {
+  const R = 6371000;
+  const rLat1 = (lat1 * Math.PI) / 180;
+  const rLat2 = (lat2 * Math.PI) / 180;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(rLat1) * Math.cos(rLat2) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+async function asegurarCanalNotificacionNativo() {
+  if (Capacitor.getPlatform() !== 'android') return;
+  try {
+    await LocalNotifications.createChannel({
+      id: CANAL_ID_GEOFENCE,
+      name: 'Alertas de cercanía',
+      description: 'Avisos cuando estás cerca de un restaurante afiliado',
+      importance: 5, // IMPORTANCE_HIGH → heads-up + sonido
+      visibility: 1,
+    });
+  } catch (err) {
+    console.warn('[useGeofencing] Error creando canal de notificación:', err.message);
+  }
+}
+
+// Mapea el shape que entrega GeofencingProvider (restaurante_id, latitud,
+// longitud, radio_aviso...) al shape que exige @capgo/background-geolocation
+// (id, latitude, longitude, radius). OJO: el bug de la versión anterior
+// era usar `r.id` acá — ese campo no existe en los restaurantes que llegan
+// del provider, así que el geofenceTransition nunca encontraba coincidencia.
+function mapearAComercios(restaurantes) {
+  return restaurantes
+    .filter(
+      (r) =>
+        r.restaurante_id &&
+        !isNaN(parseFloat(r.latitud)) &&
+        !isNaN(parseFloat(r.longitud))
+    )
+    .map((r) => ({
+      id: String(r.restaurante_id),
+      nombre: r.nombre ?? 'Restaurante',
+      latitude: parseFloat(r.latitud),
+      longitude: parseFloat(r.longitud),
+      radius: Math.max(parseInt(r.radio_aviso, 10) || 200, RADIO_MINIMO_METROS),
+      mensaje_promo: r.mensaje_promo,
+      puntos_llegada: r.puntos_llegada ?? 2,
+    }));
+}
+
+export function useGeofencing(restaurantes) {
+  // Estados posibles: 'idle' | 'solicitando_permiso' | 'sin_permiso' | 'rastreando'
+  const [estado, setEstado] = useState('idle');
+  const [dentroDeRango, setDentroDeRango] = useState([]);
   const [proximos, setProximos] = useState([]);
-  const [notifInApp, setNotifInApp] = useState(null);
+  const [notifInApp, setNotifInApp] = useState([]);
 
+  const restaurantesRef = useRef(restaurantes);
+  const comerciosActivosRef = useRef([]);
   const watcherIdRef = useRef(null);
   const transitionListenerRef = useRef(null);
 
-  // 1. Crear el canal de notificaciones en Android con prioridad máxima
-  const crearCanalNotificaciones = async () => {
-    try {
-      await LocalNotifications.createChannel({
-        id: CHANNEL_ID,
-        name: 'Alertas de Restaurantes',
-        description: 'Notificaciones cuando estás cerca de un restaurante asociado',
-        importance: 5, // Prioridad máxima (Banner/Sonido en Android)
-        visibility: 1,
-        sound: 'default',
-        vibration: true,
-      });
-    } catch (err) {
-      console.error('Error al crear canal de notificaciones:', err);
-    }
-  };
+  useEffect(() => {
+    restaurantesRef.current = restaurantes;
+  }, [restaurantes]);
 
-  // 2. Disparar notificación local
-  const enviarNotificacion = async (restaurante) => {
-    const titulo = '¡Estás cerca!';
-    const mensaje = `Llegaste a ${restaurante.nombre || 'un restaurante asociado'}. ¡Abre la app para sumar puntos!`;
-
-    // Notificación en pantalla si la app está abierta
-    setNotifInApp({
-      id: restaurante.id,
-      nombre: restaurante.nombre,
-      mensaje,
-    });
-
-    // Notificación nativa (funciona en segundo plano)
+  const mostrarNotifNativa = useCallback(async (comercio) => {
     try {
       await LocalNotifications.schedule({
         notifications: [
           {
-            title: titulo,
-            body: mensaje,
-            id: typeof restaurante.id === 'number' ? restaurante.id : Math.floor(Math.random() * 100000),
-            channelId: CHANNEL_ID,
-            schedule: { at: new Date(Date.now() + 100) },
-            extra: { restauranteId: restaurante.id },
+            id: idNumericoDesde(comercio.id),
+            title: `¡Estás cerca de ${comercio.nombre}!`,
+            body: comercio.mensaje_promo || `Confirma tu llegada y gana +${comercio.puntos_llegada} puntos`,
+            channelId: CANAL_ID_GEOFENCE,
+            smallIcon: 'ic_stat_icon',
+            extra: { restauranteId: comercio.id },
           },
         ],
       });
     } catch (err) {
-      console.error('Error al enviar notificación local:', err);
+      console.warn('[useGeofencing] Error mostrando notificación nativa:', err.message);
     }
-  };
+  }, []);
 
-  const limpiarNotifInApp = () => setNotifInApp(null);
+  // Callback del evento nativo 'geofenceTransition'. Forma real confirmada
+  // contra @capgo/background-geolocation: { identifier, transition: 'ENTER'|'EXIT', extras }
+  const manejarTransicion = useCallback(
+    (evento) => {
+      const { identifier, transition } = evento || {};
+      if (!identifier) return;
+      const comercio = comerciosActivosRef.current.find((c) => c.id === String(identifier));
+      if (!comercio) return;
 
-  // 3. Inicializar Geofencing y Bajo Consumo con Capgo
-  useEffect(() => {
-    let montado = true;
-
-    const inicializarGeofencing = async () => {
-      if (!usuarioId || !restaurantes || restaurantes.length === 0) {
-        if (montado) setEstado('activo');
-        return;
-      }
-
-      try {
-        await crearCanalNotificaciones();
-
-        // Solicitar permisos de localización al usuario
-        const permisoNotif = await LocalNotifications.requestPermissions();
-        if (permisoNotif.display !== 'granted') {
-          console.warn('Permisos de notificación no concedidos');
-        }
-
-        // Formatear la lista de restaurantes al estándar que requiere @capgo/background-geolocation
-        const geofences = restaurantes.map((r) => ({
-          id: String(r.id),
-          latitude: Number(r.latitud || r.latitude),
-          longitude: Number(r.longitud || r.longitude),
-          radius: Number(r.radio_metros || r.radius || 100),
-          notifyOnEntry: true,
-          notifyOnExit: true,
-        }));
-
-        // Añadir las geocercas a Capgo
-        await BackgroundGeolocation.addGeofences({ geofences });
-
-        // Escuchar eventos de entrada/salida de la geocerca
-        transitionListenerRef.current = await BackgroundGeolocation.addListener(
-          'geofenceTransition',
-          (event) => {
-            const restEncontrado = restaurantes.find(
-              (r) => String(r.id) === String(event.id)
-            );
-
-            if (event.transitionType === 'ENTER') {
-              setDentroDeRango(true);
-              if (restEncontrado) {
-                enviarNotificacion(restEncontrado);
-              }
-            } else if (event.transitionType === 'EXIT') {
-              setDentroDeRango(false);
-            }
-          }
-        );
-
-        // Listener de posición de bajo consumo en segundo plano
-        watcherIdRef.current = await BackgroundGeolocation.addWatcher(
+      if (transition === 'ENTER') {
+        setDentroDeRango((prev) => (prev.includes(identifier) ? prev : [...prev, identifier]));
+        mostrarNotifNativa(comercio);
+        setNotifInApp((prev) => [
+          ...prev,
           {
-            backgroundMessage: 'Monitoreando restaurantes cercanos en segundo plano',
-            backgroundTitle: 'Pisingo Geofencing',
-            requestPermissions: true,
-            stale: false,
-            distanceFilter: 50, // Notificar cambios cada 50 metros para bajo consumo
+            id: `${identifier}-${Date.now()}`,
+            restauranteId: identifier,
+            nombre: comercio.nombre,
+            mensaje: comercio.mensaje_promo || `Confirma tu llegada y gana +${comercio.puntos_llegada} puntos`,
+            timestamp: Date.now(),
           },
-          (location, error) => {
-            if (error) {
-              console.error('Error en watcher de localización Capgo:', error);
-              return;
-            }
-            if (location && montado) {
-              // Actualizar lista de restaurantes próximos para la UI
-              const cerca = restaurantes.filter((r) => {
-                const lat = Number(r.latitud || r.latitude);
-                const lng = Number(r.longitud || r.longitude);
-                const radio = Number(r.radio_metros || r.radius || 100);
-                const d = calcularDistanciaHaversine(
-                  location.latitude,
-                  location.longitude,
-                  lat,
-                  lng
-                );
-                return d <= radio * 3; // Mostrar como 'próximos' los que están a 3x del radio
-              });
-              setProximos(cerca);
-            }
-          }
-        );
-
-        if (montado) setEstado('activo');
-      } catch (error) {
-        console.error('Error inicializando Capgo Geofencing:', error);
-        if (montado) setEstado('error');
+        ]);
       }
-    };
 
-    inicializarGeofencing();
+      if (transition === 'EXIT') {
+        setDentroDeRango((prev) => prev.filter((id) => id !== identifier));
+      }
+    },
+    [mostrarNotifNativa]
+  );
 
-    // Limpieza de listeners y watchers al desmontar el componente
-    return () => {
-      montado = false;
+  // Alimenta `proximos` (todos los restaurantes ordenados por distancia)
+  // para la UI — totalmente independiente de la detección ENTER/EXIT.
+  const actualizarProximos = useCallback((uLat, uLon) => {
+    const lista = restaurantesRef.current
+      .map((r) => ({
+        ...r,
+        distanciaMetros: Math.round(
+          distanciaMetros(uLat, uLon, parseFloat(r.latitud), parseFloat(r.longitud))
+        ),
+      }))
+      .sort((a, b) => a.distanciaMetros - b.distanciaMetros);
+    setProximos(lista);
+  }, []);
+
+  const iniciarRastreo = useCallback(async () => {
+    const comercios = mapearAComercios(restaurantesRef.current);
+    if (comercios.length === 0) return;
+    comerciosActivosRef.current = comercios;
+    setEstado('solicitando_permiso');
+
+    try {
+      const permisoNotif = await LocalNotifications.requestPermissions();
+      if (permisoNotif.display !== 'granted') {
+        console.warn('[useGeofencing] Permiso de notificaciones no concedido — las geocercas dispararán pero no se mostrará nada');
+      }
+      await asegurarCanalNotificacionNativo();
+
+      // setupGeofencing dispara internamente el flujo de dos pasos
+      // (foreground primero, luego el upgrade a background) tanto en
+      // Android como en iOS, usando los textos ya definidos en
+      // AndroidManifest.xml / Info.plist.
+      await BackgroundGeolocation.setupGeofencing({
+        backgroundLocation: true,
+        notifyOnEntry: true,
+        notifyOnExit: true,
+      });
+
+      transitionListenerRef.current = await BackgroundGeolocation.addListener(
+        'geofenceTransition',
+        manejarTransicion
+      );
+
+      // Límites nativos: iOS permite ~20 geocercas simultáneas por app,
+      // Android bastantes más. Si se supera, considerar registrar solo
+      // las N más cercanas a la última ubicación conocida.
+      if (comercios.length > 20) {
+        console.warn(
+          `[useGeofencing] ${comercios.length} geocercas solicitadas — iOS solo soporta ~20 ` +
+          'simultáneas; puede fallar silenciosamente a partir de la #20.'
+        );
+      }
+
+      for (const comercio of comercios) {
+        try {
+          await BackgroundGeolocation.addGeofence({
+            identifier: comercio.id,
+            latitude: comercio.latitude,
+            longitude: comercio.longitude,
+            radius: comercio.radius,
+            notifyOnEntry: true,
+            notifyOnExit: true,
+            extras: { nombre: comercio.nombre },
+          });
+        } catch (err) {
+          console.warn(`[useGeofencing] Error registrando geocerca "${comercio.nombre}":`, err.message);
+        }
+      }
+
+      // Watcher de bajo consumo: distanceFilter alto = pocas actualizaciones
+      // = bajo impacto de batería. Solo actualiza `proximos`; la detección
+      // de entrada/salida NO depende de esto, corre 100% a nivel de SO.
+      const watcherId = await BackgroundGeolocation.addWatcher(
+        {
+          backgroundTitle: 'LoyalPass está activo',
+          backgroundMessage: 'Te avisaremos cuando estés cerca de tus restaurantes favoritos.',
+          requestPermissions: false, // ya se pidió arriba en setupGeofencing
+          stale: false,
+          distanceFilter: 50,
+        },
+        (location, error) => {
+          if (error) {
+            console.warn('[useGeofencing] Error en watcher de bajo consumo:', error.message);
+            return;
+          }
+          if (location) actualizarProximos(location.latitude, location.longitude);
+        }
+      );
+
+      watcherIdRef.current = watcherId;
+      setEstado('rastreando');
+      console.log('[useGeofencing] Geocercas nativas + watcher de bajo consumo activos ✅');
+    } catch (err) {
+      console.warn('[useGeofencing] Error inicializando rastreo:', err.message);
+      setEstado('sin_permiso');
+    }
+  }, [manejarTransicion, actualizarProximos]);
+
+  const detenerRastreo = useCallback(async () => {
+    try {
       if (watcherIdRef.current) {
-        BackgroundGeolocation.removeWatcher({ id: watcherIdRef.current });
+        await BackgroundGeolocation.removeWatcher({ id: watcherIdRef.current });
+        watcherIdRef.current = null;
       }
       if (transitionListenerRef.current) {
-        transitionListenerRef.current.remove();
+        await transitionListenerRef.current.remove();
+        transitionListenerRef.current = null;
       }
+      for (const comercio of comerciosActivosRef.current) {
+        try {
+          await BackgroundGeolocation.removeGeofence({ identifier: comercio.id });
+        } catch (err) {
+          console.warn(`[useGeofencing] Error removiendo geocerca "${comercio.id}":`, err.message);
+        }
+      }
+      comerciosActivosRef.current = [];
+    } catch (err) {
+      console.warn('[useGeofencing] Error deteniendo rastreo:', err.message);
+    }
+    setEstado('idle');
+    setDentroDeRango([]);
+    setProximos([]);
+  }, []);
+
+  const limpiarNotifInApp = useCallback(() => setNotifInApp([]), []);
+
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) {
+      console.warn('[useGeofencing] Geofencing nativo requiere build nativo (Android/iOS) — no funciona en navegador web');
+      return;
+    }
+    if (restaurantes.length === 0) return;
+    iniciarRastreo();
+    return () => {
+      detenerRastreo();
     };
-  }, [restaurantes, usuarioId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [restaurantes.length]);
 
-  return {
-    dentroDeRango,
-    estado,
-    proximos,
-    notifInApp,
-    limpiarNotifInApp,
-  };
-}
-
-// Función auxiliar para calcular distancias en metros (Haversine)
-function calcularDistanciaHaversine(lat1, lon1, lat2, lon2) {
-  const R = 6371000; // Radio de la Tierra en metros
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLon = ((lon2 - lon1) * Math.PI) / 180;
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos((lat1 * Math.PI) / 180) *
-      Math.cos((lat2 * Math.PI) / 180) *
-      Math.sin(dLon / 2) *
-      Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
+  return { dentroDeRango, estado, proximos, notifInApp, limpiarNotifInApp };
 }
