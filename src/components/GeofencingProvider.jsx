@@ -6,7 +6,7 @@
  * Si falla, lo registra en consola pero NO rompe el resto de la app.
  */
 
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { supabase }                    from '../services/supabaseClient';
 import { useGeofencing }               from '../hooks/useGeofencing';
 import { getNotifPrefs }               from './SelectorNotificaciones';
@@ -106,11 +106,19 @@ export function GeofencingProvider({ children }) {
     return () => { supabase.removeChannel(channel); };
   }, []);
 
-  // Filtrar según preferencias del usuario (solo restaurantes con notifs activas)
-  const prefs = getNotifPrefs();
-  const restaurantesFiltrados = restaurantes.filter(r =>
-    prefs[r.restaurante_id] !== false  // activo por defecto si no hay preferencia
-  );
+  // Filtrar según preferencias del usuario (solo restaurantes con notifs activas).
+  // useMemo es CLAVE acá: sin esto, este array se recrea (con una referencia
+  // nueva) en CADA render del provider, sin importar el motivo del render.
+  // Como useGeofencing/useGeofencingCapgo dependen de esta referencia para
+  // decidir cuándo re-registrar las geocercas, un array "nuevo" de más
+  // dispara todo el flujo de nuevo: vuelve a pedir permisos, muestra el
+  // diálogo de nuevo, re-registra geocercas, etc. Solo debe recalcularse
+  // cuando cambian de verdad los datos (restaurantes) o las preferencias
+  // (prefsClave).
+  const restaurantesFiltrados = useMemo(() => {
+    const prefs = getNotifPrefs();
+    return restaurantes.filter(r => prefs[r.restaurante_id] !== false);
+  }, [restaurantes, prefsClave]);
 
   // useGeofencing solo se activa con los restaurantes que el usuario eligió
   const { estado, dentroDeRango } = useGeofencing(restaurantesFiltrados);
