@@ -1,7 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { GeofencingProvider } from './components/GeofencingProvider';
 import { BatteryOptimizationGuide } from './components/BatteryOptimizationGuide';
-import { BatteryOptimizationGuide } from './components/BatteryOptimizationGuide';
 import { PruebaGeofencingCapgo } from './components/PruebaGeofencingCapgo';
 import { AuthScreen }       from './components/AuthScreen';
 import { ResetPassword }    from './components/ResetPassword';
