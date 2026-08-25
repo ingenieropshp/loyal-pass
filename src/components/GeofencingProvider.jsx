@@ -8,13 +8,17 @@
 
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { supabase }                    from '../services/supabaseClient';
-import { useGeofencingCapgo }          from '../hooks/useGeofencingCapgo';
+import { useGeofencing }               from '../hooks/useGeofencing';
 import { getNotifPrefs }               from './SelectorNotificaciones';
 
 const GeofencingContext = createContext({
-  estado:           'idle',
-  comerciosActivos: [],
-  restaurantes:     [],
+  estado:          'idle',
+  dentroDeRango:   [],
+  proximos:        [],
+  notifInApp:      [],
+  limpiarNotifInApp: () => {},
+  restaurantes:    [],
+  suscripcion:     null,
 });
 
 export const useGeofencingContext = () => useContext(GeofencingContext);
@@ -108,50 +112,31 @@ export function GeofencingProvider({ children }) {
   // Filtrar según preferencias del usuario (solo restaurantes con notifs activas).
   // useMemo es CLAVE acá: sin esto, este array se recrea (con una referencia
   // nueva) en CADA render del provider, sin importar el motivo del render.
-  // Como useGeofencing/useGeofencingCapgo dependen de esta referencia para
-  // decidir cuándo re-registrar las geocercas, un array "nuevo" de más
-  // dispara todo el flujo de nuevo: vuelve a pedir permisos, muestra el
-  // diálogo de nuevo, re-registra geocercas, etc. Solo debe recalcularse
-  // cuando cambian de verdad los datos (restaurantes) o las preferencias
-  // (prefsClave).
+  // Como useGeofencing depende de esta referencia para decidir cuándo
+  // re-registrar las geocercas, un array "nuevo" de más dispara todo el
+  // flujo de nuevo: vuelve a pedir permisos, muestra el diálogo de nuevo,
+  // re-registra geocercas, etc. Solo debe recalcularse cuando cambian de
+  // verdad los datos (restaurantes) o las preferencias (prefsClave).
   const restaurantesFiltrados = useMemo(() => {
     const prefs = getNotifPrefs();
     return restaurantes.filter(r => prefs[r.restaurante_id] !== false);
   }, [restaurantes, prefsClave]);
 
-  // useGeofencingCapgo espera { id, nombre, latitude, longitude, radius };
-  // restaurantesFiltrados trae { restaurante_id, nombre, latitud, longitud,
-  // radio_aviso } — el mismo mapeo que ya se validó manualmente con el
-  // arnés de prueba (PruebaGeofencingCapgo.jsx, ya retirado).
-  const comerciosMapeados = useMemo(
-    () =>
-      restaurantesFiltrados.map(r => ({
-        id:        r.restaurante_id,
-        nombre:    r.nombre,
-        latitude:  r.latitud,
-        longitude: r.longitud,
-        radius:    r.radio_aviso || 100,
-      })),
-    [restaurantesFiltrados]
-  );
-
-  const { estado, comerciosActivos, iniciar, detener } = useGeofencingCapgo(comerciosMapeados);
-
-  // (Re)registra las geocercas nativas cada vez que cambia la lista de
-  // comercios a monitorear (carga inicial, cambio de preferencias del
-  // usuario, o actualización en tiempo real de coordenadas). Si falla
-  // (permiso denegado, navegador web, etc.) queda registrado en consola
-  // vía useGeofencingCapgo — nunca bloquea el render de la app.
-  useEffect(() => {
-    if (comerciosMapeados.length > 0) {
-      iniciar(comerciosMapeados);
-    }
-    return () => { detener(); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [comerciosMapeados]);
+  // useGeofencing solo se activa con los restaurantes que el usuario eligió
+  const { estado, dentroDeRango, proximos, notifInApp, limpiarNotifInApp } =
+    useGeofencing(restaurantesFiltrados);
 
   return (
-    <GeofencingContext.Provider value={{ estado, comerciosActivos, restaurantes: restaurantesFiltrados }}>
+    <GeofencingContext.Provider
+      value={{
+        estado,
+        dentroDeRango,
+        proximos,
+        notifInApp,
+        limpiarNotifInApp,
+        restaurantes: restaurantesFiltrados,
+      }}
+    >
       {children}
     </GeofencingContext.Provider>
   );
