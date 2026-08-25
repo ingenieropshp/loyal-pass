@@ -197,8 +197,8 @@ export function useGeofencingCapgo(comercios = COMERCIOS_EJEMPLO) {
     try {
       await BackgroundGeolocation.setupGeofencing({
         backgroundLocation: true, // pide ACCESS_BACKGROUND_LOCATION en Android
-        notifyOnEntry:      true, // nos interesa el evento de ENTRADA
-        notifyOnExit:       false, // no pediste aviso de salida; déjalo en true si luego lo necesitas
+        notifyOnEntry:      true, // avisar al ENTRAR al radio
+        notifyOnExit:       true, // avisar también al SALIR del radio
       });
       return true;
     } catch (err) {
@@ -245,7 +245,7 @@ export function useGeofencingCapgo(comercios = COMERCIOS_EJEMPLO) {
           longitude:  comercio.longitude,
           radius:     Math.max(comercio.radius, RADIO_MINIMO_METROS),
           notifyOnEntry: true,
-          notifyOnExit:  false,
+          notifyOnExit:  true,
           extras: { nombre: comercio.nombre }, // viaja de vuelta en el evento geofenceTransition
         });
       } catch (err) {
@@ -256,22 +256,29 @@ export function useGeofencingCapgo(comercios = COMERCIOS_EJEMPLO) {
     setComerciosActivos(validas);
   }, []);
 
-  // ── Paso 3: mostrar la notificación al entrar ──────────────────────────
-  const mostrarNotificacionEntrada = useCallback(async (nombreComercio, identifier) => {
+  // ── Paso 3: mostrar la notificación al entrar o salir ──────────────────
+  // Un mismo comercio usa un id de notificación DISTINTO para entrada y
+  // salida (identifier + ':entrada' / ':salida'), así una no reemplaza a
+  // la otra en el centro de notificaciones si el usuario todavía no vio
+  // la anterior. Dentro de un mismo tipo, sí se reutiliza el mismo id
+  // (comportamiento ya existente): una segunda entrada al mismo comercio
+  // reemplaza la notificación de entrada anterior en vez de acumular.
+  const mostrarNotificacionTransicion = useCallback(async (tipo, nombreComercio, identifier) => {
+    const esEntrada = tipo === 'ENTER';
     try {
       await LocalNotifications.schedule({
         notifications: [
           {
-            id:        idNumericoDesde(identifier),
-            title:     `¡Estás cerca de ${nombreComercio}!`,
-            body:      `Acumula puntos con ${NOMBRE_MARCA}`,
+            id:        idNumericoDesde(`${identifier}:${esEntrada ? 'entrada' : 'salida'}`),
+            title:     esEntrada ? `¡Estás cerca de ${nombreComercio}!` : `Saliste de ${nombreComercio}`,
+            body:      esEntrada ? `Acumula puntos con ${NOMBRE_MARCA}` : '¡Esperamos verte pronto de nuevo!',
             channelId: CANAL_ID_GEOFENCE, // Android: qué canal (y sonido) usa
             smallIcon: 'ic_stat_icon',    // debe existir en android/app/src/main/res/drawable*
-            extra:     { restauranteId: identifier },
+            extra:     { restauranteId: identifier, tipo },
           },
         ],
       });
-      console.log(`[GeofencingCapgo] 🔔 Notificación enviada: ${nombreComercio}`);
+      console.log(`[GeofencingCapgo] 🔔 Notificación de ${esEntrada ? 'entrada' : 'salida'} enviada: ${nombreComercio}`);
     } catch (err) {
       console.warn('[GeofencingCapgo] Error mostrando notificación:', err.message);
     }
@@ -295,10 +302,16 @@ export function useGeofencingCapgo(comercios = COMERCIOS_EJEMPLO) {
       'geofenceTransition',
       (evento) => {
         // evento: { identifier, transition: 'ENTER' | 'EXIT', extras, ... }
-        if (evento.transition !== 'ENTER') return;
+        // El sistema operativo dispara un evento único por cada cruce de
+        // borde (no de forma repetida mientras el usuario permanece
+        // dentro), así que esto ya notifica "una sola vez por entrada" y
+        // "una sola vez por salida" — tantas veces como el usuario
+        // realmente entre y salga del radio.
+        if (evento.transition !== 'ENTER' && evento.transition !== 'EXIT') return;
         const nombre = evento.extras?.nombre ?? 'un comercio afiliado';
-        console.log(`[GeofencingCapgo] 🟢 Entrada detectada: ${evento.identifier} (${nombre})`);
-        mostrarNotificacionEntrada(nombre, evento.identifier);
+        const etiqueta = evento.transition === 'ENTER' ? '🟢 Entrada' : '🔴 Salida';
+        console.log(`[GeofencingCapgo] ${etiqueta} detectada: ${evento.identifier} (${nombre})`);
+        mostrarNotificacionTransicion(evento.transition, nombre, evento.identifier);
       }
     );
 
@@ -314,7 +327,7 @@ export function useGeofencingCapgo(comercios = COMERCIOS_EJEMPLO) {
     await registrarGeocercas(listaComercios);
     setEstado('activo');
     console.log('[GeofencingCapgo] Geofencing nativo activo ✅');
-  }, [comercios, solicitarPermisos, registrarGeocercas, mostrarNotificacionEntrada]);
+  }, [comercios, solicitarPermisos, registrarGeocercas, mostrarNotificacionTransicion]);
 
   const detener = useCallback(async () => {
     for (const comercio of comerciosActivos) {
