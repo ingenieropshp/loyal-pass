@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "272904418949",
+    "project_id": "loyalpass-9caad",
+    "storage_bucket": "loyalpass-9caad.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:272904418949:android:088475d483a244db441bec",
+        "android_client_info": {
+          "package_name": "com.bistroconnect.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAetCpY43JV4QUvvnBoZamusdyI36lIw9A"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

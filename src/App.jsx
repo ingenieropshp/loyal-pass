@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { GeofencingProvider } from './components/GeofencingProvider';
+import { usePushNotifications } from './hooks/usePushNotifications';
 import { BatteryOptimizationGuide } from './components/BatteryOptimizationGuide';
 import { AuthScreen }       from './components/AuthScreen';
 import { ResetPassword }    from './components/ResetPassword';
@@ -625,6 +626,11 @@ function App() {
 }
 
 function AppConGeofencing() {
+  // Registra el token FCM apenas arranca la app nativa — necesario para que
+  // el webhook de geocercas (Edge Function) pueda avisarle a este
+  // dispositivo aunque la app esté completamente cerrada.
+  usePushNotifications();
+
   return (
     <GeofencingProvider>
       <App />

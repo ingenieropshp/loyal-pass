@@ -29,8 +29,14 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { BackgroundGeolocation } from '@capgo/background-geolocation';
 import { LocalNotifications } from '@capacitor/local-notifications';
+import { getDeviceId } from '../utils/deviceId';
 
 const CANAL_ID_GEOFENCE = 'geofence-alerts';
+
+// Edge Function de Supabase que recibe el POST nativo del plugin cuando el
+// WebView está suspendido (app en background/cerrada) y desde ahí dispara
+// una notificación push real (FCM) — ver supabase/functions/geofence-webhook.
+const GEOFENCE_WEBHOOK_URL = import.meta.env.VITE_GEOFENCE_WEBHOOK_URL;
 
 // Piso recomendado por Apple/plugins de geofencing nativo: por debajo de
 // ~100m el margen de error normal del GPS (10-50m en ciudad, peor entre
@@ -136,15 +142,22 @@ export function useGeofencing(restaurantes) {
   }, []);
 
   // Callback del evento nativo 'geofenceTransition'. Forma real confirmada
-  // contra @capgo/background-geolocation: { identifier, transition: 'ENTER'|'EXIT', extras }
+  // contra la documentación oficial de @capgo/background-geolocation v8:
+  // { identifier, transition: 'enter'|'exit', enter: boolean, latitude, longitude, radius, payload }
+  // OJO: `transition` viene en MINÚSCULAS ('enter' / 'exit'), no 'ENTER'/'EXIT'.
+  // Usamos el booleano `enter` como fuente de verdad porque no depende de
+  // mayúsculas/minúsculas ni de nombres de string que el plugin pueda ajustar.
   const manejarTransicion = useCallback(
     (evento) => {
-      const { identifier, transition } = evento || {};
+      const { identifier, transition, enter } = evento || {};
       if (!identifier) return;
       const comercio = comerciosActivosRef.current.find((c) => c.id === String(identifier));
       if (!comercio) return;
 
-      if (transition === 'ENTER') {
+      const esEntrada = typeof enter === 'boolean' ? enter : String(transition).toLowerCase() === 'enter';
+      const esSalida  = typeof enter === 'boolean' ? !enter : String(transition).toLowerCase() === 'exit';
+
+      if (esEntrada) {
         setDentroDeRango((prev) => (prev.includes(identifier) ? prev : [...prev, identifier]));
         mostrarNotifNativa(comercio);
         setNotifInApp((prev) => [
@@ -159,7 +172,7 @@ export function useGeofencing(restaurantes) {
         ]);
       }
 
-      if (transition === 'EXIT') {
+      if (esSalida) {
         setDentroDeRango((prev) => prev.filter((id) => id !== identifier));
       }
     },
@@ -193,14 +206,29 @@ export function useGeofencing(restaurantes) {
       }
       await asegurarCanalNotificacionNativo();
 
+      if (!GEOFENCE_WEBHOOK_URL) {
+        console.warn(
+          '[useGeofencing] Falta VITE_GEOFENCE_WEBHOOK_URL — con la app cerrada ' +
+          'el evento no va a llegar (el listener JS solo dispara con el WebView vivo).'
+        );
+      }
+
       // setupGeofencing dispara internamente el flujo de dos pasos
       // (foreground primero, luego el upgrade a background) tanto en
       // Android como en iOS, usando los textos ya definidos en
       // AndroidManifest.xml / Info.plist.
+      //
+      // `url` es lo que permite recibir la transición con la app cerrada:
+      // el plugin hace un POST nativo (sin depender del WebView) al webhook,
+      // que a su vez dispara una notificación push real (FCM). El listener
+      // `geofenceTransition` de abajo sigue sirviendo para cuando la app
+      // está abierta/en foreground.
       await BackgroundGeolocation.setupGeofencing({
+        url: GEOFENCE_WEBHOOK_URL,
         backgroundLocation: true,
         notifyOnEntry: true,
         notifyOnExit: true,
+        payload: { deviceId: getDeviceId() },
       });
 
       transitionListenerRef.current = await BackgroundGeolocation.addListener(
