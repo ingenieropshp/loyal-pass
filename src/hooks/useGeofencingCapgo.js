@@ -39,7 +39,14 @@ import { LocalNotifications } from '@capacitor/local-notifications';
 // Nombre de marca usado en el copy de la notificación.
 const NOMBRE_MARCA = 'LoyalPass';
 
-const CANAL_ID_GEOFENCE = 'geofence-cercania-capgo-v1';
+// v2: se cambió el ID a propósito. Los canales de notificación de Android
+// son INMUTABLES una vez creados en el teléfono del usuario — si dejábamos
+// el mismo ID de antes, cualquier teléfono donde la app ya se hubiera
+// instalado se habría quedado para siempre con el canal viejo (sin el
+// sonido personalizado), sin importar qué diga el código de ahora en
+// adelante. Con un ID nuevo, Android crea el canal de cero, ya con el
+// sonido correcto, incluso en teléfonos que ya tenían la app instalada.
+const CANAL_ID_GEOFENCE = 'geofence-cercania-capgo-v2';
 
 // ⚠️ RADIO MÍNIMO RECOMENDADO: 100 m es el piso que pediste, y coincide
 // con el mínimo que documentan los plugins de geofencing nativo (Apple
@@ -83,6 +90,10 @@ async function asegurarCanalNotificacion() {
       description: 'Avisos cuando estás cerca de un comercio afiliado',
       importance:  5, // IMPORTANCE_HIGH → heads-up + sonido
       visibility:  1,
+      // Debe existir en android/app/src/main/res/raw/ (sin subcarpetas).
+      // El plugin arma internamente la URI android.resource://.../raw/<nombre>,
+      // así que aquí sí se incluye la extensión del archivo.
+      sound: 'mixkit_happy_bells_notification_937.wav',
     });
   } catch (err) {
     console.warn('[GeofencingCapgo] Error creando canal:', err.message);
@@ -101,16 +112,42 @@ async function asegurarCanalNotificacion() {
  * propio modal/bottom-sheet (ej. reutilizando el patrón visual de
  * BatteryOptimizationGuide.jsx, que ya tienes en el proyecto).
  */
+// Clave en localStorage para recordar que el usuario ya aceptó el
+// disclosure — así solo se pregunta UNA VEZ en la vida de la instalación,
+// no cada vez que se vuelve a llamar iniciar() (por ejemplo al navegar
+// entre perfiles de restaurantes, o al cerrar y reabrir la app).
+const DISCLOSURE_ACEPTADO_KEY = 'loyalpass_geofencing_disclosure_ok';
+
 async function mostrarDisclosurePrevio() {
+  // Si ya lo aceptó antes, no volver a preguntar.
+  try {
+    if (localStorage.getItem(DISCLOSURE_ACEPTADO_KEY) === 'true') {
+      return true;
+    }
+  } catch (err) {
+    // localStorage no disponible (muy raro en un WebView) — seguimos y
+    // preguntamos igual, simplemente no vamos a poder recordar la respuesta.
+  }
+
   // TODO: reemplazar por un modal real de tu UI.
   // Ejemplo mínimo con window.confirm solo para que el flujo sea funcional
   // de entrada:
-  return window.confirm(
+  const acepta = window.confirm(
     `${NOMBRE_MARCA} quiere avisarte cuando pases cerca de un comercio ` +
     'afiliado, incluso con la app cerrada, para que no pierdas la ' +
     'oportunidad de sumar puntos. Tu ubicación nunca se comparte con ' +
     'terceros ni se usa para otro fin.\n\n¿Activar avisos de cercanía?'
   );
+
+  if (acepta) {
+    try { localStorage.setItem(DISCLOSURE_ACEPTADO_KEY, 'true'); } catch (err) { /* no-op */ }
+  }
+  // Si el usuario RECHAZA, a propósito NO lo guardamos como "definitivo" —
+  // así, la próxima vez que abra la app, se le vuelve a preguntar (puede
+  // haber sido un rechazo accidental). Si prefieres que un rechazo también
+  // quede fijo para siempre, avísame y lo cambiamos.
+
+  return acepta;
 }
 
 // ── Hook ─────────────────────────────────────────────────────────────────
