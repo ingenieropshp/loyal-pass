@@ -16,19 +16,31 @@
  * integración final, es solo el arnés de prueba.
  */
 
+import { useMemo } from 'react';
 import { useGeofencingContext } from './GeofencingProvider';
 import { EjemploUsoGeofencingCapgo } from './EjemploUsoGeofencingCapgo';
 
 export function PruebaGeofencingCapgo() {
   const { restaurantes } = useGeofencingContext();
 
-  const comerciosMapeados = restaurantes.map(r => ({
-    id:        r.restaurante_id,
-    nombre:    r.nombre,
-    latitude:  r.latitud,
-    longitude: r.longitud,
-    radius:    r.radio_aviso || 100,
-  }));
+  // useMemo evita que este array se recree (con una referencia nueva) en
+  // cada render de este componente. Si no se memoiza, cualquier re-render
+  // del GeofencingProvider padre (por ejemplo al cambiar prefsClave) genera
+  // un array "distinto" aunque el contenido sea igual, y el useEffect de
+  // EjemploUsoGeofencingCapgo (que depende de esta referencia) se vuelve a
+  // disparar de más — re-registrando las geocercas y re-mostrando el
+  // diálogo de permiso varias veces seguidas.
+  const comerciosMapeados = useMemo(
+    () =>
+      restaurantes.map(r => ({
+        id:        r.restaurante_id,
+        nombre:    r.nombre,
+        latitude:  r.latitud,
+        longitude: r.longitud,
+        radius:    r.radio_aviso || 100,
+      })),
+    [restaurantes]
+  );
 
   if (comerciosMapeados.length === 0) {
     return <p style={{ padding: 12, fontSize: 12 }}>[Prueba Capgo] Sin restaurantes cargados todavía…</p>;

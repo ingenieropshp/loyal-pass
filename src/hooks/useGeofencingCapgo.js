@@ -36,9 +36,8 @@ import { LocalNotifications } from '@capacitor/local-notifications';
 
 // ── Configuración ─────────────────────────────────────────────────────────
 
-// Nombre de marca usado en el copy de la notificación (pediste "Pisingo"
-// textualmente en el mensaje; ajústalo acá si cambia).
-const NOMBRE_MARCA = 'Pisingo';
+// Nombre de marca usado en el copy de la notificación.
+const NOMBRE_MARCA = 'LoyalPass';
 
 const CANAL_ID_GEOFENCE = 'geofence-cercania-capgo-v1';
 
