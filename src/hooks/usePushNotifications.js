@@ -1,20 +1,15 @@
 /**
  * usePushNotifications.js — LoyalPass
  * ─────────────────────────────────────────────────────────────────────────
+ * ⚠️ VERSIÓN TEMPORAL DE DEBUG — tiene alert() en cada paso para ver en
+ * pantalla, sin depender de la compu, en qué punto falla el registro del
+ * token FCM. Cuando confirmemos que anda, hay que sacar los alert() y
+ * volver a la versión limpia (solo console.log/console.error).
+ *
  * Registra el dispositivo en FCM (Firebase Cloud Messaging) vía
  * @capacitor/push-notifications y guarda el token resultante en
  * `device_push_tokens`, asociado al mismo `device_id` que ya usa el resto
  * de la app (utils/deviceId.js).
- *
- * Este token es lo que le permite al backend (Edge Function
- * geofence-webhook) despertar una notificación real cuando la app está
- * completamente cerrada — algo que LocalNotifications NO puede hacer,
- * porque requiere JS corriendo y el proceso puede estar muerto.
- *
- * Requiere:
- *   npm install @capacitor/push-notifications
- *   npx cap sync android
- *   google-services.json colocado en android/app/ (ver instrucciones)
  */
 
 import { useEffect } from 'react';
@@ -25,7 +20,12 @@ import { getDeviceId } from '../utils/deviceId';
 
 async function guardarTokenEnSupabase(token) {
   const deviceId = getDeviceId();
-  if (!deviceId) return;
+  alert('[DEBUG] Token FCM recibido: ' + token.substring(0, 20) + '...\ndeviceId: ' + deviceId);
+
+  if (!deviceId) {
+    alert('[DEBUG] ERROR: no hay deviceId, no se puede guardar');
+    return;
+  }
 
   const { error } = await supabase
     .from('device_push_tokens')
@@ -40,27 +40,36 @@ async function guardarTokenEnSupabase(token) {
     );
 
   if (error) {
-    console.error('[usePushNotifications] Error guardando token FCM:', error.message);
+    alert('[DEBUG] ERROR guardando en Supabase: ' + error.message);
+  } else {
+    alert('[DEBUG] ✅ Token guardado en Supabase correctamente');
   }
 }
 
 export function usePushNotifications() {
   useEffect(() => {
-    // Push real (FCM) solo existe en build nativo — en la PWA esto no aplica,
-    // ahí seguís usando push_subscriptions + VAPID (SelectorNotificaciones.jsx).
-    if (!Capacitor.isNativePlatform()) return;
+    if (!Capacitor.isNativePlatform()) {
+      alert('[DEBUG] No es plataforma nativa, se salta el registro push');
+      return;
+    }
 
     let listenerRegistration;
     let listenerError;
 
     (async () => {
       try {
+        alert('[DEBUG] Iniciando registro push...');
+
         let estado = await PushNotifications.checkPermissions();
+        alert('[DEBUG] Permiso actual: ' + estado.receive);
+
         if (estado.receive === 'prompt') {
           estado = await PushNotifications.requestPermissions();
+          alert('[DEBUG] Permiso después de pedir: ' + estado.receive);
         }
+
         if (estado.receive !== 'granted') {
-          console.warn('[usePushNotifications] Permiso de notificaciones push denegado');
+          alert('[DEBUG] ❌ Permiso denegado, no se puede registrar push');
           return;
         }
 
@@ -69,12 +78,14 @@ export function usePushNotifications() {
         });
 
         listenerError = await PushNotifications.addListener('registrationError', (err) => {
-          console.error('[usePushNotifications] Error de registro FCM:', err);
+          alert('[DEBUG] ❌ Error de registro FCM: ' + JSON.stringify(err));
         });
 
+        alert('[DEBUG] Listeners listos, llamando a register()...');
         await PushNotifications.register();
+        alert('[DEBUG] register() llamado sin errores, esperando token...');
       } catch (err) {
-        console.error('[usePushNotifications] Error inicializando push nativo:', err.message);
+        alert('[DEBUG] ❌ Excepción inicializando push nativo: ' + err.message);
       }
     })();
 
