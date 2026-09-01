@@ -106,7 +106,7 @@ function mapearAComercios(restaurantes) {
     }));
 }
 
-export function useGeofencing(restaurantes, deviceIdExterno) {
+export function useGeofencing(restaurantes) {
   // Estados posibles: 'idle' | 'solicitando_permiso' | 'sin_permiso' | 'rastreando'
   const [estado, setEstado] = useState('idle');
   const [dentroDeRango, setDentroDeRango] = useState([]);
@@ -149,14 +149,10 @@ export function useGeofencing(restaurantes, deviceIdExterno) {
   // mayúsculas/minúsculas ni de nombres de string que el plugin pueda ajustar.
   const manejarTransicion = useCallback(
     (evento) => {
-      alert('[DEBUG] 🔔 geofenceTransition recibido: ' + JSON.stringify(evento));
       const { identifier, transition, enter } = evento || {};
       if (!identifier) return;
       const comercio = comerciosActivosRef.current.find((c) => c.id === String(identifier));
-      if (!comercio) {
-        alert('[DEBUG] ⚠️ Llegó transición pero no matchea ningún comercio activo. identifier=' + identifier);
-        return;
-      }
+      if (!comercio) return;
 
       const esEntrada = typeof enter === 'boolean' ? enter : String(transition).toLowerCase() === 'enter';
       const esSalida  = typeof enter === 'boolean' ? !enter : String(transition).toLowerCase() === 'exit';
@@ -199,46 +195,23 @@ export function useGeofencing(restaurantes, deviceIdExterno) {
 
   const iniciarRastreo = useCallback(async () => {
     const comercios = mapearAComercios(restaurantesRef.current);
-    alert('[DEBUG] Comercios mapeados: ' + comercios.length + '\n' + JSON.stringify(comercios.map(c => ({id: c.id, lat: c.latitude, lon: c.longitude, radio: c.radius}))));
-    if (comercios.length === 0) {
-      alert('[DEBUG] ❌ 0 comercios — no se registra ninguna geocerca. Revisar restaurantesFiltrados/preferencias.');
-      return;
-    }
+    if (comercios.length === 0) return;
     comerciosActivosRef.current = comercios;
     setEstado('solicitando_permiso');
 
     try {
       const permisoNotif = await LocalNotifications.requestPermissions();
-      alert('[DEBUG] Permiso LocalNotifications: ' + permisoNotif.display);
       if (permisoNotif.display !== 'granted') {
         console.warn('[useGeofencing] Permiso de notificaciones no concedido — las geocercas dispararán pero no se mostrará nada');
       }
       await asegurarCanalNotificacionNativo();
 
-      // Chequeo explícito del permiso de ubicación del PLUGIN de geofencing
-      // (distinto del de notificaciones de arriba).
-      try {
-        const permisoUbicacion = await BackgroundGeolocation.checkPermissions();
-        alert('[DEBUG] checkPermissions() ubicación: ' + JSON.stringify(permisoUbicacion));
-      } catch (err) {
-        alert('[DEBUG] ⚠️ checkPermissions() no disponible o falló: ' + err.message);
-      }
-
       if (!GEOFENCE_WEBHOOK_URL) {
-        alert('[DEBUG] ⚠️ VITE_GEOFENCE_WEBHOOK_URL está VACÍA en este build');
-      } else {
-        alert('[DEBUG] Webhook URL: ' + GEOFENCE_WEBHOOK_URL);
+        console.warn(
+          '[useGeofencing] Falta VITE_GEOFENCE_WEBHOOK_URL — con la app cerrada ' +
+          'el evento no va a llegar (el listener JS solo dispara con el WebView vivo).'
+        );
       }
-
-      // Se resuelve UNA sola vez acá y se reusa tanto en el payload global
-      // de setupGeofencing como en el payload por región de cada
-      // addGeofence — evita llamar getDeviceId() repetidamente por comercio.
-      // Si GeofencingProvider ya lo "primeó" (lo resolvió en paralelo con la
-      // carga de restaurantes), esta llamada es instantánea gracias al
-      // caché interno de deviceId.js — el hook sigue siendo autosuficiente
-      // aunque nadie le pase deviceIdExterno.
-      const deviceId = deviceIdExterno ?? (await getDeviceId());
-      alert('[DEBUG] deviceId usado: ' + deviceId);
 
       // setupGeofencing dispara internamente el flujo de dos pasos
       // (foreground primero, luego el upgrade a background) tanto en
@@ -250,18 +223,25 @@ export function useGeofencing(restaurantes, deviceIdExterno) {
       // que a su vez dispara una notificación push real (FCM). El listener
       // `geofenceTransition` de abajo sigue sirviendo para cuando la app
       // está abierta/en foreground.
+      await BackgroundGeolocation.setupGeofencing({
+        url: GEOFENCE_WEBHOOK_URL,
+        backgroundLocation: true,
+        notifyOnEntry: true,
+        notifyOnExit: true,
+        payload: { deviceId: getDeviceId() },
+      });
+
+      // Limpieza defensiva: las geocercas nativas quedan registradas a nivel
+      // de SO independientemente del ciclo de vida de React. Si la app se
+      // cierra de un swipe (o el usuario cambia sus preferencias de
+      // notificación entre sesiones) el cleanup de detenerRastreo() nunca
+      // llega a correr, y el SO se queda con geocercas de un set de
+      // restaurantes viejo. Arrancamos siempre desde cero para que lo único
+      // activo sea exactamente lo que el usuario tiene habilitado ahora.
       try {
-        await BackgroundGeolocation.setupGeofencing({
-          url: GEOFENCE_WEBHOOK_URL,
-          backgroundLocation: true,
-          notifyOnEntry: true,
-          notifyOnExit: true,
-          payload: { deviceId },
-        });
-        alert('[DEBUG] ✅ setupGeofencing() completado sin errores');
+        await BackgroundGeolocation.removeAllGeofences();
       } catch (err) {
-        alert('[DEBUG] ❌ setupGeofencing() FALLÓ: ' + err.message);
-        throw err;
+        console.warn('[useGeofencing] Error limpiando geocercas huérfanas:', err.message);
       }
 
       transitionListenerRef.current = await BackgroundGeolocation.addListener(
@@ -279,12 +259,6 @@ export function useGeofencing(restaurantes, deviceIdExterno) {
         );
       }
 
-      // deviceId ya resuelto arriba (una sola vez) y usado en el payload
-      // global de setupGeofencing. Acá lo repetimos por geocerca junto con
-      // el restauranteId — el plugin combina ("merge") el payload de cada
-      // addGeofence() con el de setupGeofencing(), así que esta parte tiene
-      // prioridad si hay claves repetidas (útil si algún día el deviceId
-      // global cambiara entre el setup y el registro de cada región).
       for (const comercio of comercios) {
         try {
           await BackgroundGeolocation.addGeofence({
@@ -295,19 +269,10 @@ export function useGeofencing(restaurantes, deviceIdExterno) {
             notifyOnEntry: true,
             notifyOnExit: true,
             extras: { nombre: comercio.nombre },
-            payload: { deviceId, restauranteId: comercio.id },
           });
-          alert('[DEBUG] ✅ Geocerca registrada: ' + comercio.nombre + ' (' + comercio.latitude + ', ' + comercio.longitude + ') radio ' + comercio.radius + 'm');
         } catch (err) {
-          alert('[DEBUG] ❌ Error registrando geocerca "' + comercio.nombre + '": ' + err.message);
+          console.warn(`[useGeofencing] Error registrando geocerca "${comercio.nombre}":`, err.message);
         }
-      }
-
-      try {
-        const monitoreadas = await BackgroundGeolocation.getMonitoredGeofences();
-        alert('[DEBUG] Geocercas activas según el SO ahora mismo: ' + JSON.stringify(monitoreadas));
-      } catch (err) {
-        alert('[DEBUG] ⚠️ getMonitoredGeofences() no disponible: ' + err.message);
       }
 
       // Watcher de bajo consumo: distanceFilter alto = pocas actualizaciones
