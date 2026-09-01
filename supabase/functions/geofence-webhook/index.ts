@@ -150,8 +150,9 @@ Deno.serve(async (req) => {
     }
 
     const deviceId = payload?.deviceId;
-    if (!deviceId) {
-      return new Response(JSON.stringify({ ok: false, error: 'payload.deviceId ausente' }), { status: 400 });
+    if (!deviceId || typeof deviceId !== 'string') {
+      console.warn('[geofence-webhook] payload.deviceId inválido:', JSON.stringify(payload));
+      return new Response(JSON.stringify({ ok: false, error: 'payload.deviceId ausente o inválido' }), { status: 400 });
     }
 
     // 1) Buscar el token FCM de este dispositivo.

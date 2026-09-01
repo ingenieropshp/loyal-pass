@@ -106,7 +106,7 @@ function mapearAComercios(restaurantes) {
     }));
 }
 
-export function useGeofencing(restaurantes) {
+export function useGeofencing(restaurantes, deviceIdPrimed) {
   // Estados posibles: 'idle' | 'solicitando_permiso' | 'sin_permiso' | 'rastreando'
   const [estado, setEstado] = useState('idle');
   const [dentroDeRango, setDentroDeRango] = useState([]);
@@ -213,6 +213,21 @@ export function useGeofencing(restaurantes) {
         );
       }
 
+      // deviceId: usamos el que el provider ya "primeó" en paralelo
+      // (ver GeofencingProvider.jsx) para no volver a esperar a
+      // Device.getId() acá. Si por algún motivo llega null/undefined
+      // (carrera rara, o el provider aún no montó), caemos al await real
+      // — getDeviceId() es ASYNC, así que NUNCA se debe pasar sin await:
+      // hacerlo serializa una Promise pendiente, y JSON.stringify(promise)
+      // da literalmente "{}" — ese fue el bug original (payload.deviceId
+      // llegaba como {} en el webhook con la app cerrada).
+      const deviceId = deviceIdPrimed ?? (await getDeviceId());
+      if (!deviceId) {
+        console.warn('[useGeofencing] No se pudo resolver deviceId — abortando setup de geocercas');
+        setEstado('sin_permiso');
+        return;
+      }
+
       // setupGeofencing dispara internamente el flujo de dos pasos
       // (foreground primero, luego el upgrade a background) tanto en
       // Android como en iOS, usando los textos ya definidos en
@@ -228,7 +243,7 @@ export function useGeofencing(restaurantes) {
         backgroundLocation: true,
         notifyOnEntry: true,
         notifyOnExit: true,
-        payload: { deviceId: getDeviceId() },
+        payload: { deviceId },
       });
 
       // Limpieza defensiva: las geocercas nativas quedan registradas a nivel
