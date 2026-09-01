@@ -9,6 +9,7 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { supabase }                    from '../services/supabaseClient';
 import { useGeofencing }               from '../hooks/useGeofencing';
+import { getDeviceId }                 from '../utils/deviceId';
 import { getNotifPrefs }               from './SelectorNotificaciones';
 
 const GeofencingContext = createContext({
@@ -19,6 +20,7 @@ const GeofencingContext = createContext({
   limpiarNotifInApp: () => {},
   restaurantes:    [],
   suscripcion:     null,
+  deviceId:        null,
 });
 
 export const useGeofencingContext = () => useContext(GeofencingContext);
@@ -26,6 +28,19 @@ export const useGeofencingContext = () => useContext(GeofencingContext);
 export function GeofencingProvider({ children }) {
   const [restaurantes,   setRestaurantes]   = useState([]);
   const [prefsClave,     setPrefsClave]     = useState(0); // fuerza re-render al cambiar prefs
+  const [deviceId,       setDeviceId]       = useState(null);
+
+  // Priming: resuelve el deviceId en PARALELO con la carga de restaurantes,
+  // no en secuencia — así, para cuando useGeofencing lo necesite, ya está
+  // cacheado (getDeviceId() internamente cachea el resultado, ver deviceId.js)
+  // y no hay que esperar de nuevo a Device.getId() en nativo.
+  useEffect(() => {
+    let cancelado = false;
+    getDeviceId().then((id) => {
+      if (!cancelado) setDeviceId(id);
+    });
+    return () => { cancelado = true; };
+  }, []);
 
   // Escuchar cambios en las preferencias (cuando el usuario activa/desactiva desde SelectorNotificaciones)
   useEffect(() => {
@@ -122,9 +137,12 @@ export function GeofencingProvider({ children }) {
     return restaurantes.filter(r => prefs[r.restaurante_id] !== false);
   }, [restaurantes, prefsClave]);
 
-  // useGeofencing solo se activa con los restaurantes que el usuario eligió
+  // useGeofencing solo se activa con los restaurantes que el usuario eligió.
+  // Se le pasa el deviceId ya "primeado" arriba — si todavía no resolvió
+  // (null), el hook lo resuelve por su cuenta internamente, así que no hay
+  // riesgo de carrera entre este efecto y el de arriba.
   const { estado, dentroDeRango, proximos, notifInApp, limpiarNotifInApp } =
-    useGeofencing(restaurantesFiltrados);
+    useGeofencing(restaurantesFiltrados, deviceId);
 
   return (
     <GeofencingContext.Provider
@@ -135,6 +153,7 @@ export function GeofencingProvider({ children }) {
         notifInApp,
         limpiarNotifInApp,
         restaurantes: restaurantesFiltrados,
+        deviceId,
       }}
     >
       {children}

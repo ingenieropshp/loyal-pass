@@ -106,7 +106,7 @@ function mapearAComercios(restaurantes) {
     }));
 }
 
-export function useGeofencing(restaurantes) {
+export function useGeofencing(restaurantes, deviceIdExterno) {
   // Estados posibles: 'idle' | 'solicitando_permiso' | 'sin_permiso' | 'rastreando'
   const [estado, setEstado] = useState('idle');
   const [dentroDeRango, setDentroDeRango] = useState([]);
@@ -213,6 +213,15 @@ export function useGeofencing(restaurantes) {
         );
       }
 
+      // Se resuelve UNA sola vez acá y se reusa tanto en el payload global
+      // de setupGeofencing como en el payload por región de cada
+      // addGeofence — evita llamar getDeviceId() repetidamente por comercio.
+      // Si GeofencingProvider ya lo "primeó" (lo resolvió en paralelo con la
+      // carga de restaurantes), esta llamada es instantánea gracias al
+      // caché interno de deviceId.js — el hook sigue siendo autosuficiente
+      // aunque nadie le pase deviceIdExterno.
+      const deviceId = deviceIdExterno ?? (await getDeviceId());
+
       // setupGeofencing dispara internamente el flujo de dos pasos
       // (foreground primero, luego el upgrade a background) tanto en
       // Android como en iOS, usando los textos ya definidos en
@@ -228,7 +237,7 @@ export function useGeofencing(restaurantes) {
         backgroundLocation: true,
         notifyOnEntry: true,
         notifyOnExit: true,
-        payload: { deviceId: getDeviceId() },
+        payload: { deviceId },
       });
 
       transitionListenerRef.current = await BackgroundGeolocation.addListener(
@@ -246,6 +255,12 @@ export function useGeofencing(restaurantes) {
         );
       }
 
+      // deviceId ya resuelto arriba (una sola vez) y usado en el payload
+      // global de setupGeofencing. Acá lo repetimos por geocerca junto con
+      // el restauranteId — el plugin combina ("merge") el payload de cada
+      // addGeofence() con el de setupGeofencing(), así que esta parte tiene
+      // prioridad si hay claves repetidas (útil si algún día el deviceId
+      // global cambiara entre el setup y el registro de cada región).
       for (const comercio of comercios) {
         try {
           await BackgroundGeolocation.addGeofence({
@@ -256,6 +271,7 @@ export function useGeofencing(restaurantes) {
             notifyOnEntry: true,
             notifyOnExit: true,
             extras: { nombre: comercio.nombre },
+            payload: { deviceId, restauranteId: comercio.id },
           });
         } catch (err) {
           console.warn(`[useGeofencing] Error registrando geocerca "${comercio.nombre}":`, err.message);
