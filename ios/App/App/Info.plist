@@ -2,6 +2,15 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+  <key>NSLocationWhenInUseUsageDescription</key>
+  <string>LoyalPass necesita tu ubicación para avisarte cuando estás cerca de un restaurante afiliado.</string>
+  <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+  <string>LoyalPass necesita tu ubicación en segundo plano para avisarte cuando estás cerca de un restaurante afiliado, incluso con la app cerrada.</string>
+  <key>UIBackgroundModes</key>
+  <array>
+    <string>location</string>
+    <string>remote-notification</string>
+  </array>
   <key>CAPACITOR_DEBUG</key>
 	<string>$(CAPACITOR_DEBUG)</string>
 	<key>CFBundleDevelopmentRegion</key>

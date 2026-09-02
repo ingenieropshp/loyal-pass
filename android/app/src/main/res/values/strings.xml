@@ -1,14 +1,14 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">Bistro Connect</string>
-    <string name="title_activity_main">Bistro Connect</string>
-    <string name="package_name">com.bistroconnect.app</string>
-    <string name="custom_url_scheme">com.bistroconnect.app</string>
+    <string name="app_name">LoyalPass</string>
+    <string name="title_activity_main">LoyalPass</string>
+    <string name="package_name">com.LoyalPass.app</string>
+    <string name="custom_url_scheme">com.LoyalPass.app</string>
 
     <!-- Notificación persistente del foreground service de
          @capgo/background-geolocation (obligatoria para que Android no
          congele el tracking en 2do plano) -->
-    <string name="capacitor_background_geolocation_notification_channel_name">Bistro Connect · Ubicación</string>
+    <string name="capacitor_background_geolocation_notification_channel_name">LoyalPass · Ubicación</string>
     <string name="capacitor_background_geolocation_notification_icon">drawable/ic_tracking</string>
     <string name="capacitor_background_geolocation_notification_color">#E85D04</string>
 </resources>
