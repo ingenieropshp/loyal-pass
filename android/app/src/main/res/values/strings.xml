@@ -2,8 +2,8 @@
 <resources>
     <string name="app_name">LoyalPass</string>
     <string name="title_activity_main">LoyalPass</string>
-    <string name="package_name">com.LoyalPass.app</string>
-    <string name="custom_url_scheme">com.LoyalPass.app</string>
+    <string name="package_name">com.bistroconnect.app</string>
+    <string name="custom_url_scheme">com.bistroconnect.app</string>
 
     <!-- Notificación persistente del foreground service de
          @capgo/background-geolocation (obligatoria para que Android no
