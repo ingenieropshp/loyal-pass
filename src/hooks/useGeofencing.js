@@ -30,6 +30,7 @@ import { Capacitor } from '@capacitor/core';
 import { BackgroundGeolocation } from '@capgo/background-geolocation';
 import { LocalNotifications } from '@capacitor/local-notifications';
 import { getDeviceId } from '../utils/deviceId';
+import { supabase } from '../services/supabaseClient';
 
 const CANAL_ID_GEOFENCE = 'geofence-alerts';
 
@@ -65,6 +66,64 @@ function distanciaMetros(lat1, lon1, lat2, lon2) {
     Math.sin(dLat / 2) ** 2 +
     Math.cos(rLat1) * Math.cos(rLat2) * Math.sin(dLon / 2) ** 2;
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+// El cliente NO tiene un solo id global: se inscribe sede por sede, y
+// App.jsx guarda ese mapeo { restaurante_id: clienteId } en localStorage
+// bajo 'loyalpass_multisede' (ver App.jsx). Reutilizamos exactamente esa
+// misma clave acá para resolver, a partir del restaurante_id que llega en
+// el evento de geocerca, a QUÉ fila de `clientes` hay que abonarle los
+// puntos — sin depender de auth ni de props adicionales en el hook.
+function obtenerClienteIdParaSede(restauranteId) {
+  try {
+    const registros = JSON.parse(localStorage.getItem('loyalpass_multisede') || '{}');
+    return registros[restauranteId] || null;
+  } catch {
+    return null;
+  }
+}
+
+// Llama a la RPC que decide y otorga los puntos de geocerca/llegada
+// (fn_evento_geocerca, ver migracion_fidelizacion.sql) — "fire and forget"
+// igual que registrarLlegada() en services/supabaseClient.js: si falla no
+// debe bloquear ni interrumpir al usuario, la detección de la geocerca ya
+// cumplió su función (mostrar la notificación) independientemente de esto.
+async function notificarEventoGeocercaAlBackend(clienteId, restauranteId, tipo) {
+  if (!clienteId) return; // el usuario aún no está inscrito en esta sede
+  try {
+    const { error } = await supabase.rpc('fn_evento_geocerca', {
+      p_cliente_id: clienteId,
+      p_restaurante_id: restauranteId,
+      p_tipo: tipo,
+    });
+    if (error) console.warn('[useGeofencing] fn_evento_geocerca falló:', error.message);
+  } catch (err) {
+    console.warn('[useGeofencing] Error de red llamando fn_evento_geocerca:', err.message);
+  }
+}
+
+// Sube a `dispositivos_clientes` el mapeo (device_id, restaurante_id) →
+// cliente_id de cada sede en la que este dispositivo ya tenga cliente_id
+// resuelto localmente. Se llama una vez por arranque de rastreo (no en
+// cada transición) — es barato y mantiene la tabla al día sin tener que
+// tocar App.jsx en cada uno de los sitios donde escribe
+// 'loyalpass_multisede'. Igual que las demás llamadas de este archivo, es
+// "fire and forget": un fallo acá no debe impedir que arranque el rastreo.
+async function sincronizarDispositivosCliente(deviceId, comercios) {
+  const filas = comercios
+    .map((c) => ({ device_id: deviceId, restaurante_id: c.id, cliente_id: obtenerClienteIdParaSede(c.id) }))
+    .filter((f) => f.cliente_id);
+
+  if (filas.length === 0) return;
+
+  try {
+    const { error } = await supabase
+      .from('dispositivos_clientes')
+      .upsert(filas, { onConflict: 'device_id,restaurante_id' });
+    if (error) console.warn('[useGeofencing] No se pudo sincronizar dispositivos_clientes:', error.message);
+  } catch (err) {
+    console.warn('[useGeofencing] Error de red sincronizando dispositivos_clientes:', err.message);
+  }
 }
 
 async function asegurarCanalNotificacionNativo() {
@@ -170,10 +229,15 @@ export function useGeofencing(restaurantes, deviceIdPrimed) {
             timestamp: Date.now(),
           },
         ]);
+        // La notificación (arriba) sale SIEMPRE, en cada entrada — el bono
+        // de puntos lo decide fn_evento_geocerca del lado del servidor
+        // (solo la primera entrada bonificada del día), acá solo se avisa.
+        notificarEventoGeocercaAlBackend(obtenerClienteIdParaSede(identifier), identifier, 'entrada');
       }
 
       if (esSalida) {
         setDentroDeRango((prev) => prev.filter((id) => id !== identifier));
+        notificarEventoGeocercaAlBackend(obtenerClienteIdParaSede(identifier), identifier, 'salida');
       }
     },
     [mostrarNotifNativa]
@@ -227,6 +291,14 @@ export function useGeofencing(restaurantes, deviceIdPrimed) {
         setEstado('sin_permiso');
         return;
       }
+
+      // Sincroniza (device_id, restaurante_id) → cliente_id en Supabase para
+      // cada sede en la que el usuario ya esté inscrito en ESTE dispositivo.
+      // Es lo único que le permite a `geofence-webhook` (app cerrada/en
+      // background, sin acceso a localStorage) resolver a quién abonarle
+      // los puntos — en foreground ya no lo necesita, ese caso lo resuelve
+      // `obtenerClienteIdParaSede()` directo desde localStorage.
+      sincronizarDispositivosCliente(deviceId, comercios);
 
       // setupGeofencing dispara internamente el flujo de dos pasos
       // (foreground primero, luego el upgrade a background) tanto en
