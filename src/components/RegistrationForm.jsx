@@ -161,19 +161,7 @@ export const RegistrationForm = ({ onSuccess, user, restaurantId, referidoPor })
           ) : 'Unirme al club →'}
         </button>
 
-        {/* Benefits strip */}
-        <div style={styles.benefitsRow}>
-          {[
-            { num: '+2', label: 'puntos hoy' },
-            { num: '20', label: 'para premio' },
-            { num: '30', label: 'días validez' },
-          ].map(({ num, label }) => (
-            <div key={label} style={styles.benefitPill}>
-              <span style={styles.benefitNum}>{num}</span>
-              <span style={styles.benefitLabel}>{label}</span>
-            </div>
-          ))}
-        </div>
+      
 
         {/* Terms link */}
         <p style={styles.termsLink} onClick={() => setMostrarTerminos(true)}>
