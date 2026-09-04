@@ -21,7 +21,7 @@ import { registrarClienteEnRestaurante } from '../services/supabaseClient';
  *                                   pantalla de bienvenida con los puntos.
  */
 export const RegistrationForm = ({ onSuccess, user, restaurantId, referidoPor }) => {
-  const [formData, setFormData] = useState({ nombre: '', telefono: '', fechaNacimiento: '' });
+  const [formData, setFormData] = useState({ nombre: '', telefono: '', fechaNacimiento: '', cedula: '' });
   const [loading,  setLoading]  = useState(false);
   const [mostrarTerminos, setMostrarTerminos] = useState(false);
 
@@ -38,6 +38,13 @@ export const RegistrationForm = ({ onSuccess, user, restaurantId, referidoPor })
       setFormData(prev => ({ ...prev, telefono: soloDigitos }));
       return;
     }
+    if (id === 'cedula') {
+      // Solo dígitos, máximo 10 — cubre los formatos de cédula de ciudadanía
+      // colombiana (no lleva puntos ni guiones en la base de datos).
+      const soloDigitos = value.replace(/\D/g, '').slice(0, 10);
+      setFormData(prev => ({ ...prev, cedula: soloDigitos }));
+      return;
+    }
     const key = id === 'nacimiento' ? 'fechaNacimiento' : id;
     setFormData(prev => ({ ...prev, [key]: value }));
   };
@@ -49,12 +56,16 @@ export const RegistrationForm = ({ onSuccess, user, restaurantId, referidoPor })
       alert('Tu sesión no es válida. Vuelve a iniciar sesión e intenta de nuevo.');
       return;
     }
-    if (!formData.nombre.trim() || !formData.telefono.trim() || !formData.fechaNacimiento) {
+    if (!formData.nombre.trim() || !formData.telefono.trim() || !formData.fechaNacimiento || !formData.cedula.trim()) {
       alert('Por favor, completa todos los campos.');
       return;
     }
     if (!/^\d{10}$/.test(formData.telefono.trim())) {
       alert('El teléfono debe tener 10 dígitos, ej: 3206587850.');
+      return;
+    }
+    if (!/^\d{6,10}$/.test(formData.cedula.trim())) {
+      alert('La cédula debe tener entre 6 y 10 dígitos, sin puntos ni espacios.');
       return;
     }
     setLoading(true);
@@ -73,6 +84,7 @@ export const RegistrationForm = ({ onSuccess, user, restaurantId, referidoPor })
         nombre:          formData.nombre.trim(),
         telefono:        telefonoConIndicativo,
         fechaNacimiento: formData.fechaNacimiento,
+        cedula:          formData.cedula.trim(),
         referidoPor,
       });
 
@@ -119,6 +131,14 @@ export const RegistrationForm = ({ onSuccess, user, restaurantId, referidoPor })
               value={formData.telefono} onChange={handleChange}
               autoComplete="off" autoCorrect="off" spellCheck="false" />
           </div>
+        </div>
+
+        <div style={styles.field}>
+          <label style={styles.label} htmlFor="cedula">Cédula</label>
+          <input id="cedula" type="text" required inputMode="numeric" pattern="[0-9]{6,10}"
+            maxLength={10} placeholder="Ej: 1017123456" style={styles.input}
+            value={formData.cedula} onChange={handleChange}
+            autoComplete="off" autoCorrect="off" spellCheck="false" />
         </div>
 
         <div style={{ ...styles.field, marginBottom: '1.25rem' }}>

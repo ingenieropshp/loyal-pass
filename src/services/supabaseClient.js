@@ -161,6 +161,7 @@ export const registrarClienteEnRestaurante = async ({
   nombre,
   telefono,
   fechaNacimiento,
+  cedula,
   referidoPor,
 }) => {
   // a) ¿Ya vinculado a este restaurante? (evita duplicados por doble clic/carrera)
@@ -192,6 +193,7 @@ export const registrarClienteEnRestaurante = async ({
           email:            user.email,
           nombre:           nombre || existentePorTelefono.nombre,
           fecha_nacimiento: fechaNacimiento || null,
+          cedula:           cedula || null,
         })
         .eq('id', existentePorTelefono.id)
         .select('id, nombre, puntos')
@@ -208,6 +210,7 @@ export const registrarClienteEnRestaurante = async ({
       nombre,
       telefono,
       fecha_nacimiento: fechaNacimiento,
+      cedula:           cedula || null,
       email:            user.email,
       auth_user_id:     user.id,
       puntos:           2,
