@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../services/supabaseClient';
 import { TarjetaFidelizacion }              from './TarjetaFidelizacion';
-import { CatalogoRecompensas, ModalCanje }  from './CatalogoRecompensas';
 import { HistorialPuntos }                  from './HistorialPuntos';
 import './UserDashboard.css';
 
@@ -17,9 +16,6 @@ export const UserDashboard = ({
 }) => {
   const [cliente,        setCliente]        = useState(null);
   const [mostrarPerfil,  setMostrarPerfil]  = useState(false); // panel de "Perfil / Cerrar sesión"
-  // ── Nuevos estados para recompensas ───────────────────────────────────────
-  const [recompensaACanjear, setRecompensaACanjear] = useState(null);
-  const [historialKey,       setHistorialKey]       = useState(0); // fuerza re-render del historial
 
   // ── Service Worker ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -185,39 +181,11 @@ export const UserDashboard = ({
         </button>
       </div>
 
-      <p className="footer-text">
-        Acumula puntos en cada compra dictando tu cédula en caja.
-      </p>
-
-      {/* ── Catálogo de recompensas ────────────────────────────────────── */}
-      <CatalogoRecompensas
-        restauranteId={restauranteId}
-        puntosActuales={puntos}
-        onCanjear={r => setRecompensaACanjear(r)}
-      />
-
       {/* ── Historial de puntos ────────────────────────────────────────── */}
       <HistorialPuntos
-        key={historialKey}
         clienteId={clienteId}
         restauranteId={restauranteId}
       />
-
-      {/* ── Modal de canje ─────────────────────────────────────────────── */}
-      {recompensaACanjear && (
-        <ModalCanje
-          recompensa={recompensaACanjear}
-          clienteId={clienteId}
-          puntosActuales={puntos}
-          onExito={(nuevosPuntos) => {
-            setCliente(prev => ({ ...prev, puntos: nuevosPuntos }));
-            setHistorialKey(k => k + 1);
-            setRecompensaACanjear(null);
-            cargarCupones();
-          }}
-          onCerrar={() => setRecompensaACanjear(null)}
-        />
-      )}
     </div>
   );
 };
