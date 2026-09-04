@@ -61,7 +61,7 @@ export const RegistrationForm = ({ onSuccess, user, restaurantId, referidoPor })
       return;
     }
     if (!/^\d{10}$/.test(formData.telefono.trim())) {
-      alert('El teléfono debe tener 10 dígitos, ej: 3206587850.');
+      alert('El teléfono debe tener 10 dígitos, ej: 3000000000.');
       return;
     }
     if (!/^\d{6,10}$/.test(formData.cedula.trim())) {
@@ -117,7 +117,7 @@ export const RegistrationForm = ({ onSuccess, user, restaurantId, referidoPor })
         {/* Fields */}
         <div style={styles.field}>
           <label style={styles.label} htmlFor="nombre">Nombre completo</label>
-          <input id="nombre" type="text" required placeholder="Ej: Juan Pérez"
+          <input id="nombre" type="text" required placeholder=" "
             style={styles.input} value={formData.nombre} onChange={handleChange}
             autoComplete="off" autoCorrect="off" autoCapitalize="words" spellCheck="false" />
         </div>
@@ -127,7 +127,7 @@ export const RegistrationForm = ({ onSuccess, user, restaurantId, referidoPor })
           <div style={styles.phoneRow}>
             <span style={styles.phonePrefix}>+57</span>
             <input id="whatsapp" type="tel" required inputMode="numeric" pattern="[0-9]{10}"
-              maxLength={10} placeholder="3206587850" style={styles.phoneInput}
+              maxLength={10} placeholder="3000000000" style={styles.phoneInput}
               value={formData.telefono} onChange={handleChange}
               autoComplete="off" autoCorrect="off" spellCheck="false" />
           </div>
