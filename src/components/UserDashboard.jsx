@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { supabase } from '../services/supabaseClient';
 import { TarjetaFidelizacion }              from './TarjetaFidelizacion';
 import { HistorialPuntos }                  from './HistorialPuntos';
+import RedimirPuntosModal                   from './RedimirPuntosModal';
 import './UserDashboard.css';
 
 // TOTAL_PUNTOS eliminado — ahora se lee de la tabla conexion (configurable por admin)
@@ -16,6 +17,8 @@ export const UserDashboard = ({
 }) => {
   const [cliente,        setCliente]        = useState(null);
   const [mostrarPerfil,  setMostrarPerfil]  = useState(false); // panel de "Perfil / Cerrar sesión"
+  const [mostrarRedimir, setMostrarRedimir] = useState(false); // modal "Pagar con puntos"
+  const [saldoVersion,   setSaldoVersion]   = useState(0);     // fuerza refetch de TarjetaFidelizacion tras redimir
 
   // ── Service Worker ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -96,11 +99,32 @@ export const UserDashboard = ({
     <div className="dashboard-container animate-fade-in">
 
       {/* ── Tarjeta de fidelización con nivel ─────────────────────────── */}
+      {/* key={saldoVersion}: fuerza que este componente se vuelva a montar
+          y refetchee `saldo_usuario` tras una redención — ese valor no
+          llega por props, así que un simple re-render no lo actualizaría. */}
       <TarjetaFidelizacion
+        key={saldoVersion}
         cliente={cliente}
         nombreRestaurante={nombreRestaurante}
+        restauranteId={restauranteId}
         puntosTotales={puntos}
       />
+
+      {/* Botón de pago con puntos — justo bajo la tarjeta de saldo, sin
+          duplicar el número que ya se ve arriba. */}
+      {puntos >= 15000 && (
+        <button
+          onClick={() => setMostrarRedimir(true)}
+          style={{
+            width: '100%', padding: '14px', marginBottom: 16,
+            background: 'var(--coral)', color: 'white', border: 'none',
+            borderRadius: 14, fontWeight: 800, fontSize: '0.95rem',
+            cursor: 'pointer', boxShadow: 'var(--shadow-btn)',
+          }}
+        >
+          💳 Pagar cuenta con mis puntos
+        </button>
+      )}
 
       {/* Header nombre + acceso a perfil/configuración */}
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', width: '100%' }}>
@@ -185,6 +209,18 @@ export const UserDashboard = ({
       <HistorialPuntos
         clienteId={clienteId}
         restauranteId={restauranteId}
+      />
+
+      {/* ── Modal: redención de monto libre para pagar en caja ─────────── */}
+      <RedimirPuntosModal
+        isOpen={mostrarRedimir}
+        onClose={() => setMostrarRedimir(false)}
+        cliente={cliente}
+        restauranteId={restauranteId}
+        onRedencionExitosa={(nuevoSaldo) => {
+          setCliente(prev => (prev ? { ...prev, puntos: nuevoSaldo } : prev));
+          setSaldoVersion(v => v + 1); // fuerza que TarjetaFidelizacion refetchee saldo_usuario
+        }}
       />
     </div>
   );
