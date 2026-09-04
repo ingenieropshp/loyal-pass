@@ -3,9 +3,19 @@
  * Muestra las recompensas configuradas por el admin para el restaurante.
  * Lee de la tabla `recompensas` de Supabase.
  * El cliente ve cuántos puntos le faltan para cada recompensa.
+ *
+ * CAMBIOS:
+ * 1. La redención ahora consume la función RPC FIFO `fn_redimir_puntos`
+ *    (antes: `canjear_recompensa`).
+ * 2. Reglas mínimas de redención: no se puede redimir si el saldo del
+ *    cliente es menor a 15.000 pts, ni si el valor en COP de la recompensa
+ *    (campo `valor_cop`, ajusta el nombre si tu tabla lo llama distinto)
+ *    es menor a $15.000 COP.
+ * 3. Aviso visual: tras redimir, las compras del mismo día no acumulan
+ *    puntos. El aviso se persiste con localStorage para el día en curso.
  */
 
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { supabase } from '../services/supabaseClient';
 
 // ── Íconos por categoría ──────────────────────────────────────────────────────
@@ -18,6 +28,33 @@ const ICONOS = {
   default:   '🎁',
 };
 
+// ── Reglas mínimas de redención ───────────────────────────────────────────────
+const MIN_PUNTOS_SALDO   = 15000; // saldo mínimo del cliente para poder redimir
+const MIN_VALOR_COP_CANJE = 15000; // valor mínimo (COP) de la recompensa a redimir
+
+// ── Aviso "no acumulas puntos hoy" — persistido por día en localStorage ──────
+const LS_KEY_REDIMIDO_HOY = 'lp_redimido_hoy';
+
+function hoyISO() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function fueRedimidoHoy() {
+  try {
+    return localStorage.getItem(LS_KEY_REDIMIDO_HOY) === hoyISO();
+  } catch {
+    return false;
+  }
+}
+
+function marcarRedimidoHoy() {
+  try {
+    localStorage.setItem(LS_KEY_REDIMIDO_HOY, hoyISO());
+  } catch {
+    /* localStorage no disponible, se omite el flag persistente */
+  }
+}
+
 function IconoRecompensa({ tipo }) {
   return <span style={{ fontSize: '1.4rem' }}>{ICONOS[tipo] ?? ICONOS.default}</span>;
 }
@@ -25,6 +62,7 @@ function IconoRecompensa({ tipo }) {
 export function CatalogoRecompensas({ restauranteId, puntosActuales = 0, onCanjear }) {
   const [recompensas, setRecompensas] = useState([]);
   const [cargando,    setCargando]    = useState(true);
+  const [redimidoHoy, setRedimidoHoy] = useState(fueRedimidoHoy());
 
   useEffect(() => {
     if (!restauranteId) return;
@@ -39,6 +77,14 @@ export function CatalogoRecompensas({ restauranteId, puntosActuales = 0, onCanje
         setCargando(false);
       });
   }, [restauranteId]);
+
+  // Escucha el evento disparado por ModalCanje cuando una redención se confirma,
+  // para reflejar el aviso "no acumulas puntos hoy" sin recargar la pantalla.
+  useEffect(() => {
+    const onRedimido = () => setRedimidoHoy(true);
+    window.addEventListener('lp:canje-confirmado', onRedimido);
+    return () => window.removeEventListener('lp:canje-confirmado', onRedimido);
+  }, []);
 
   if (cargando) return null;
   if (recompensas.length === 0) return null;
@@ -58,11 +104,43 @@ export function CatalogoRecompensas({ restauranteId, puntosActuales = 0, onCanje
         </span>
       </div>
 
+      {/* Aviso: no se acumulan puntos hoy tras una redención */}
+      {redimidoHoy && (
+        <div style={{
+          background:   'var(--bg-subtle)',
+          border:       '1px solid var(--border)',
+          borderRadius: 12,
+          padding:      '10px 12px',
+          marginBottom: 12,
+          fontSize:     '0.75rem',
+          color:        'var(--text)',
+          display:      'flex',
+          alignItems:   'center',
+          gap:          8,
+        }}>
+          <span>⚠️</span>
+          <span>Ya redimiste puntos hoy: las compras de hoy no acumularán puntos nuevos.</span>
+        </div>
+      )}
+
       {/* Grid de recompensas */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
         {recompensas.map(r => {
-          const puntasFaltan = Math.max(0, r.puntos_requeridos - puntosActuales);
-          const disponible   = puntasFaltan === 0;
+          const puntasFaltan     = Math.max(0, r.puntos_requeridos - puntosActuales);
+          const tienePuntos      = puntasFaltan === 0;
+          const cumpleMinSaldo   = puntosActuales >= MIN_PUNTOS_SALDO;
+          const cumpleMinValor   = (r.valor_cop ?? 0) >= MIN_VALOR_COP_CANJE;
+          const disponible       = tienePuntos && cumpleMinSaldo && cumpleMinValor;
+
+          // Motivo de bloqueo, para mostrar un mensaje útil en vez de un simple "Faltan X"
+          let motivoBloqueo = null;
+          if (!tienePuntos) {
+            motivoBloqueo = `Faltan ${puntasFaltan.toLocaleString()}`;
+          } else if (!cumpleMinSaldo) {
+            motivoBloqueo = `Mínimo ${MIN_PUNTOS_SALDO.toLocaleString()} pts en tu cuenta`;
+          } else if (!cumpleMinValor) {
+            motivoBloqueo = `Este canje no alcanza el mínimo de $${MIN_VALOR_COP_CANJE.toLocaleString()} COP`;
+          }
 
           return (
             <div
@@ -125,7 +203,7 @@ export function CatalogoRecompensas({ restauranteId, puntosActuales = 0, onCanje
                     padding:    '3px 8px', borderRadius: 8,
                     opacity: 0.8,
                   }}>
-                    Faltan {puntasFaltan.toLocaleString()}
+                    {motivoBloqueo}
                   </span>
                 )}
               </div>
@@ -138,25 +216,34 @@ export function CatalogoRecompensas({ restauranteId, puntosActuales = 0, onCanje
 }
 
 // ── Modal de confirmación de canje ────────────────────────────────────────────
-// NOTA: la generación del código y el descuento de puntos ya NO se hacen aquí.
-// Todo corre de forma atómica en la función RPC `canjear_recompensa`
-// (ver 002_canje_rpc.sql), para que un fallo a mitad de camino no deje al
-// cliente sin puntos y sin cupón.
+// NOTA: la redención corre de forma atómica en la función RPC FIFO
+// `fn_redimir_puntos(p_user_id, p_puntos_redimir)`. Esta función se encarga
+// de descontar los puntos más antiguos primero (FIFO) del saldo vigente del
+// cliente. Ajusta el nombre de los campos del objeto retornado (`data`) según
+// lo que tu función realmente devuelva — aquí se asume que puede incluir un
+// código de cupón (`codigo`) y una fecha de vencimiento opcional.
 export function ModalCanje({ recompensa, clienteId, puntosActuales, onExito, onCerrar }) {
-  const [procesando, setProcesando]     = useState(false);
-  const [cuponGenerado, setCuponGenerado] = useState(null); // { codigo, nombre, fecha_vencimiento }
+  const [procesando, setProcesando]       = useState(false);
+  const [cuponGenerado, setCuponGenerado] = useState(null);
+
+  const puntasFaltan   = recompensa ? Math.max(0, recompensa.puntos_requeridos - puntosActuales) : 0;
+  const cumpleMinSaldo = puntosActuales >= MIN_PUNTOS_SALDO;
+  const cumpleMinValor = recompensa ? (recompensa.valor_cop ?? 0) >= MIN_VALOR_COP_CANJE : false;
+  const puedeRedimir   = recompensa && puntasFaltan === 0 && cumpleMinSaldo && cumpleMinValor;
 
   const confirmarCanje = async () => {
-    if (!recompensa || procesando) return;
+    if (!recompensa || procesando || !puedeRedimir) return;
     setProcesando(true);
     try {
-      const { data: cupon, error } = await supabase.rpc('canjear_recompensa', {
-        p_cliente_id: clienteId,
-        p_recompensa_id: recompensa.id,
+      const { data, error } = await supabase.rpc('fn_redimir_puntos', {
+        p_user_id:        clienteId,
+        p_puntos_redimir: recompensa.puntos_requeridos,
       });
       if (error) throw error;
 
-      setCuponGenerado(cupon);
+      setCuponGenerado(data);
+      marcarRedimidoHoy();
+      window.dispatchEvent(new Event('lp:canje-confirmado'));
     } catch (err) {
       const legibles = {
         PUNTOS_INSUFICIENTES:     'No tienes suficientes puntos para este premio.',
@@ -169,9 +256,6 @@ export function ModalCanje({ recompensa, clienteId, puntosActuales, onExito, onC
     }
   };
 
-  // IMPORTANTE: los puntos ya NO se descuentan aquí. Se descuentan en el panel
-  // admin cuando el cajero confirma el código, así que la UI debe mostrar los
-  // mismos puntos que tenía antes — no restar nada todavía.
   const cerrarConExito = () => {
     onExito?.(puntosActuales, recompensa, cuponGenerado);
   };
@@ -199,31 +283,44 @@ export function ModalCanje({ recompensa, clienteId, puntosActuales, onExito, onC
                 ¡Canje confirmado!
               </h3>
               <p style={{ margin: 0, color: 'var(--text)', opacity: 0.6, fontSize: '0.85rem' }}>
-                Muéstrale este código al mesero para reclamar tu {cuponGenerado.nombre}.
-                Tus {recompensa.puntos_requeridos} pts se descuentan al confirmarlo en caja.
+                {cuponGenerado.codigo
+                  ? `Muéstrale este código al mesero para reclamar tu ${recompensa.nombre}.`
+                  : `Tu canje de ${recompensa.nombre} quedó registrado.`}
               </p>
             </div>
 
-            <div style={{
-              background: 'var(--bg-subtle)', borderRadius: 12,
-              padding: '18px 16px', marginBottom: 20, textAlign: 'center',
-            }}>
-              <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text)', opacity: 0.6, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
-                Código de canje
-              </p>
-              <p style={{
-                margin: '6px 0 0', fontFamily: 'var(--font-display)', fontWeight: 800,
-                fontSize: '2.2rem', letterSpacing: '0.15em', color: 'var(--coral)',
+            {cuponGenerado.codigo && (
+              <div style={{
+                background: 'var(--bg-subtle)', borderRadius: 12,
+                padding: '18px 16px', marginBottom: 20, textAlign: 'center',
               }}>
-                {cuponGenerado.codigo}
-              </p>
-              {cuponGenerado.fecha_vencimiento && (
-                <p style={{ margin: '6px 0 0', fontSize: '0.75rem', color: 'var(--text)', opacity: 0.5 }}>
-                  Válido hasta {new Date(cuponGenerado.fecha_vencimiento).toLocaleDateString('es-CO', {
-                    day: '2-digit', month: 'short', year: 'numeric',
-                  })}
+                <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text)', opacity: 0.6, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+                  Código de canje
                 </p>
-              )}
+                <p style={{
+                  margin: '6px 0 0', fontFamily: 'var(--font-display)', fontWeight: 800,
+                  fontSize: '2.2rem', letterSpacing: '0.15em', color: 'var(--coral)',
+                }}>
+                  {cuponGenerado.codigo}
+                </p>
+                {cuponGenerado.fecha_vencimiento && (
+                  <p style={{ margin: '6px 0 0', fontSize: '0.75rem', color: 'var(--text)', opacity: 0.5 }}>
+                    Válido hasta {new Date(cuponGenerado.fecha_vencimiento).toLocaleDateString('es-CO', {
+                      day: '2-digit', month: 'short', year: 'numeric',
+                    })}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Aviso: no acumula puntos hoy */}
+            <div style={{
+              background: 'var(--bg-subtle)', border: '1px solid var(--border)',
+              borderRadius: 12, padding: '10px 12px', marginBottom: 20,
+              fontSize: '0.75rem', color: 'var(--text)', display: 'flex', gap: 8, alignItems: 'center',
+            }}>
+              <span>⚠️</span>
+              <span>Las compras que hagas hoy no acumularán puntos, ya que realizaste una redención.</span>
             </div>
 
             <button
@@ -252,25 +349,41 @@ export function ModalCanje({ recompensa, clienteId, puntosActuales, onExito, onC
 
             <div style={{
               background: 'var(--bg-subtle)', borderRadius: 12,
-              padding: '12px 16px', marginBottom: 20, textAlign: 'center',
+              padding: '12px 16px', marginBottom: 12, textAlign: 'center',
             }}>
               <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text)', opacity: 0.7 }}>
-                Se descontarán al confirmar tu código en caja
+                Se descontarán de tu saldo vigente al confirmar
               </p>
               <p style={{ margin: '4px 0 0', fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: '1.5rem', color: 'var(--coral)' }}>
                 -{recompensa.puntos_requeridos} pts
               </p>
             </div>
 
+            {/* Validaciones visuales de mínimos */}
+            {!cumpleMinSaldo && (
+              <p style={{ margin: '0 0 10px', fontSize: '0.78rem', color: 'var(--coral)', textAlign: 'center' }}>
+                Necesitas al menos {MIN_PUNTOS_SALDO.toLocaleString()} pts en tu cuenta para redimir.
+              </p>
+            )}
+            {cumpleMinSaldo && !cumpleMinValor && (
+              <p style={{ margin: '0 0 10px', fontSize: '0.78rem', color: 'var(--coral)', textAlign: 'center' }}>
+                Este premio no alcanza el mínimo de ${MIN_VALOR_COP_CANJE.toLocaleString()} COP para redimir.
+              </p>
+            )}
+
+            <p style={{ margin: '0 0 16px', fontSize: '0.72rem', color: 'var(--text)', opacity: 0.6, textAlign: 'center' }}>
+              ⚠️ Si redimes hoy, tus compras de hoy no acumularán puntos nuevos.
+            </p>
+
             <button
               onClick={confirmarCanje}
-              disabled={procesando}
+              disabled={procesando || !puedeRedimir}
               style={{
                 width: '100%', padding: '14px',
-                background: procesando ? 'var(--bg-subtle)' : 'var(--coral)',
-                color: procesando ? 'var(--text)' : 'white',
+                background: (procesando || !puedeRedimir) ? 'var(--bg-subtle)' : 'var(--coral)',
+                color: (procesando || !puedeRedimir) ? 'var(--text)' : 'white',
                 border: 'none', borderRadius: 14,
-                fontWeight: 800, fontSize: '1rem', cursor: 'pointer',
+                fontWeight: 800, fontSize: '1rem', cursor: (procesando || !puedeRedimir) ? 'not-allowed' : 'pointer',
                 marginBottom: 10,
               }}
             >

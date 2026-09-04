@@ -7,7 +7,16 @@
  *    (Core Location en iOS / Geofencing API en Android) vigila el radio a
  *    nivel de SO, dispara 'geofenceTransition' y despierta el proceso
  *    incluso con la app cerrada — sin mantener el JS ni el GPS activos
- *    todo el tiempo.
+ *    todo el tiempo. `url`+`payload:{deviceId}` en setupGeofencing es lo
+ *    que le permite al plugin hacer un POST nativo (sin JS) cuando la app
+ *    está completamente cerrada.
+ *
+ *  - Con la app abierta/en background-pero-viva, el mismo evento también
+ *    llega acá como listener JS ('geofenceTransition' → manejarTransicion).
+ *    En ESE caso el POST al Edge Function lo hace este archivo directamente
+ *    vía fetch, con `user_id` + las coordenadas del evento — el Edge
+ *    Function es el único responsable de decidir y acreditar puntos; este
+ *    hook ya no calcula ni inserta puntos por su cuenta.
  *
  *  - addWatcher() de bajo consumo (distanceFilter alto) usado SOLO para
  *    mantener actualizada la lista `proximos` que consume la UI. Está
@@ -15,13 +24,7 @@
  *    resuelve el sistema operativo vía las geocercas nativas de arriba,
  *    el watcher no interviene en absoluto en esa lógica.
  *
- * Este archivo consolida en un único hook lo que antes vivía dividido en
- * dos versiones inconsistentes entre sí (una con la interfaz de retorno
- * correcta pero API del plugin mal invocada — `addGeofences` en plural,
- * campo `id` que no coincidía con `restaurante_id`, evento
- * `transitionType`; y otra, useGeofencingCapgo.js, con la API real del
- * plugin pero sin la interfaz que exige GeofencingProvider.jsx). Mantiene
- * la interfaz de retorno exigida:
+ * Mantiene la interfaz de retorno exigida por GeofencingProvider.jsx:
  *   { dentroDeRango, estado, proximos, notifInApp, limpiarNotifInApp }
  */
 
@@ -34,15 +37,26 @@ import { supabase } from '../services/supabaseClient';
 
 const CANAL_ID_GEOFENCE = 'geofence-alerts';
 
-// Edge Function de Supabase que recibe el POST nativo del plugin cuando el
-// WebView está suspendido (app en background/cerrada) y desde ahí dispara
-// una notificación push real (FCM) — ver supabase/functions/geofence-webhook.
+// Edge Function de Supabase. Recibe tanto el POST nativo del plugin (app
+// cerrada, ver setupGeofencing más abajo) como el POST directo que este
+// archivo dispara desde manejarTransicion cuando el WebView está vivo.
 const GEOFENCE_WEBHOOK_URL = import.meta.env.VITE_GEOFENCE_WEBHOOK_URL;
+
+// Requerida para que el Edge Function acepte la petición: sin Authorization
+// (o apikey), Supabase la rechaza con 401 antes de que el handler llegue a
+// leer el payload.
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 // Piso recomendado por Apple/plugins de geofencing nativo: por debajo de
 // ~100m el margen de error normal del GPS (10-50m en ciudad, peor entre
 // edificios altos) genera falsos negativos/positivos.
 const RADIO_MINIMO_METROS = 100;
+
+// Clave de localStorage usada ÚNICAMENTE para no reenviar el mismo evento de
+// entrada mientras el usuario sigue dentro de la geocerca en la misma
+// visita. Se limpia en el 'exit', así que una salida + reentrada posterior
+// sí cuenta como visita nueva y vuelve a notificar al Edge Function.
+const CLAVE_VISITAS_EN_CURSO = 'loyalpass_visitas_en_curso';
 
 // LocalNotifications.schedule requiere id numérico (int32) por notificación.
 // Con un hash estable, un mismo comercio siempre reemplaza su notificación
@@ -68,61 +82,60 @@ function distanciaMetros(lat1, lon1, lat2, lon2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-// El cliente NO tiene un solo id global: se inscribe sede por sede, y
-// App.jsx guarda ese mapeo { restaurante_id: clienteId } en localStorage
-// bajo 'loyalpass_multisede' (ver App.jsx). Reutilizamos exactamente esa
-// misma clave acá para resolver, a partir del restaurante_id que llega en
-// el evento de geocerca, a QUÉ fila de `clientes` hay que abonarle los
-// puntos — sin depender de auth ni de props adicionales en el hook.
-function obtenerClienteIdParaSede(restauranteId) {
+function yaNotificadaEnEstaVisita(restauranteId) {
   try {
-    const registros = JSON.parse(localStorage.getItem('loyalpass_multisede') || '{}');
-    return registros[restauranteId] || null;
+    const visitas = JSON.parse(localStorage.getItem(CLAVE_VISITAS_EN_CURSO) || '{}');
+    return Boolean(visitas[restauranteId]);
   } catch {
-    return null;
+    return false;
   }
 }
 
-// Llama a la RPC que decide y otorga los puntos de geocerca/llegada
-// (fn_evento_geocerca, ver migracion_fidelizacion.sql) — "fire and forget"
-// igual que registrarLlegada() en services/supabaseClient.js: si falla no
-// debe bloquear ni interrumpir al usuario, la detección de la geocerca ya
-// cumplió su función (mostrar la notificación) independientemente de esto.
-async function notificarEventoGeocercaAlBackend(clienteId, restauranteId, tipo) {
-  if (!clienteId) return; // el usuario aún no está inscrito en esta sede
+function marcarVisitaEnCurso(restauranteId, enCurso) {
   try {
-    const { error } = await supabase.rpc('fn_evento_geocerca', {
-      p_cliente_id: clienteId,
-      p_restaurante_id: restauranteId,
-      p_tipo: tipo,
+    const visitas = JSON.parse(localStorage.getItem(CLAVE_VISITAS_EN_CURSO) || '{}');
+    if (enCurso) {
+      visitas[restauranteId] = true;
+    } else {
+      delete visitas[restauranteId];
+    }
+    localStorage.setItem(CLAVE_VISITAS_EN_CURSO, JSON.stringify(visitas));
+  } catch (err) {
+    console.warn('[useGeofencing] No se pudo actualizar el registro de visita en curso:', err.message);
+  }
+}
+
+// POST directo (WebView vivo) al Edge Function. Reemplaza la lógica anterior
+// de cálculo/inserción de puntos desde el dispositivo: acá solo se reporta
+// quién y dónde, y es el Edge Function el que decide y acredita del lado
+// del servidor. "Fire and forget": si falla, no debe bloquear la UI — la
+// notificación local (mostrarNotifNativa) ya cumplió su función.
+async function enviarEventoGeocercaWebhook(userId, restauranteId, latitude, longitude) {
+  if (!GEOFENCE_WEBHOOK_URL) {
+    console.warn('[useGeofencing] Falta VITE_GEOFENCE_WEBHOOK_URL — no se envía el evento de geocerca');
+    return;
+  }
+  if (!userId) {
+    console.warn('[useGeofencing] No hay user_id resuelto (¿sesión no iniciada?) — se omite el POST de geocerca');
+    return;
+  }
+  try {
+    await fetch(GEOFENCE_WEBHOOK_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        apikey: SUPABASE_ANON_KEY,
+      },
+      body: JSON.stringify({
+        user_id: userId,
+        restaurante_id: restauranteId,
+        latitude,
+        longitude,
+      }),
     });
-    if (error) console.warn('[useGeofencing] fn_evento_geocerca falló:', error.message);
   } catch (err) {
-    console.warn('[useGeofencing] Error de red llamando fn_evento_geocerca:', err.message);
-  }
-}
-
-// Sube a `dispositivos_clientes` el mapeo (device_id, restaurante_id) →
-// cliente_id de cada sede en la que este dispositivo ya tenga cliente_id
-// resuelto localmente. Se llama una vez por arranque de rastreo (no en
-// cada transición) — es barato y mantiene la tabla al día sin tener que
-// tocar App.jsx en cada uno de los sitios donde escribe
-// 'loyalpass_multisede'. Igual que las demás llamadas de este archivo, es
-// "fire and forget": un fallo acá no debe impedir que arranque el rastreo.
-async function sincronizarDispositivosCliente(deviceId, comercios) {
-  const filas = comercios
-    .map((c) => ({ device_id: deviceId, restaurante_id: c.id, cliente_id: obtenerClienteIdParaSede(c.id) }))
-    .filter((f) => f.cliente_id);
-
-  if (filas.length === 0) return;
-
-  try {
-    const { error } = await supabase
-      .from('dispositivos_clientes')
-      .upsert(filas, { onConflict: 'device_id,restaurante_id' });
-    if (error) console.warn('[useGeofencing] No se pudo sincronizar dispositivos_clientes:', error.message);
-  } catch (err) {
-    console.warn('[useGeofencing] Error de red sincronizando dispositivos_clientes:', err.message);
+    console.warn('[useGeofencing] Error de red enviando evento de geocerca al webhook:', err.message);
   }
 }
 
@@ -143,9 +156,7 @@ async function asegurarCanalNotificacionNativo() {
 
 // Mapea el shape que entrega GeofencingProvider (restaurante_id, latitud,
 // longitud, radio_aviso...) al shape que exige @capgo/background-geolocation
-// (id, latitude, longitude, radius). OJO: el bug de la versión anterior
-// era usar `r.id` acá — ese campo no existe en los restaurantes que llegan
-// del provider, así que el geofenceTransition nunca encontraba coincidencia.
+// (id, latitude, longitude, radius).
 function mapearAComercios(restaurantes) {
   return restaurantes
     .filter(
@@ -176,6 +187,7 @@ export function useGeofencing(restaurantes, deviceIdPrimed) {
   const comerciosActivosRef = useRef([]);
   const watcherIdRef = useRef(null);
   const transitionListenerRef = useRef(null);
+  const userIdRef = useRef(null);
 
   useEffect(() => {
     restaurantesRef.current = restaurantes;
@@ -208,7 +220,7 @@ export function useGeofencing(restaurantes, deviceIdPrimed) {
   // mayúsculas/minúsculas ni de nombres de string que el plugin pueda ajustar.
   const manejarTransicion = useCallback(
     (evento) => {
-      const { identifier, transition, enter } = evento || {};
+      const { identifier, transition, enter, latitude, longitude } = evento || {};
       if (!identifier) return;
       const comercio = comerciosActivosRef.current.find((c) => c.id === String(identifier));
       if (!comercio) return;
@@ -229,15 +241,19 @@ export function useGeofencing(restaurantes, deviceIdPrimed) {
             timestamp: Date.now(),
           },
         ]);
-        // La notificación (arriba) sale SIEMPRE, en cada entrada — el bono
-        // de puntos lo decide fn_evento_geocerca del lado del servidor
-        // (solo la primera entrada bonificada del día), acá solo se avisa.
-        notificarEventoGeocercaAlBackend(obtenerClienteIdParaSede(identifier), identifier, 'entrada');
+
+        // Solo se reporta una vez por visita: si ya está marcada como "en
+        // curso" para este comercio, no se vuelve a llamar al webhook hasta
+        // que ocurra el 'exit' correspondiente.
+        if (!yaNotificadaEnEstaVisita(identifier)) {
+          marcarVisitaEnCurso(identifier, true);
+          enviarEventoGeocercaWebhook(userIdRef.current, identifier, latitude, longitude);
+        }
       }
 
       if (esSalida) {
         setDentroDeRango((prev) => prev.filter((id) => id !== identifier));
-        notificarEventoGeocercaAlBackend(obtenerClienteIdParaSede(identifier), identifier, 'salida');
+        marcarVisitaEnCurso(identifier, false);
       }
     },
     [mostrarNotifNativa]
@@ -277,6 +293,14 @@ export function useGeofencing(restaurantes, deviceIdPrimed) {
         );
       }
 
+      // user_id: quién reporta el evento al Edge Function. Se resuelve una
+      // sola vez por arranque de rastreo, igual que deviceId abajo.
+      const { data: userData, error: userError } = await supabase.auth.getUser();
+      if (userError) {
+        console.warn('[useGeofencing] No se pudo resolver el usuario autenticado:', userError.message);
+      }
+      userIdRef.current = userData?.user?.id ?? null;
+
       // deviceId: usamos el que el provider ya "primeó" en paralelo
       // (ver GeofencingProvider.jsx) para no volver a esperar a
       // Device.getId() acá. Si por algún motivo llega null/undefined
@@ -292,24 +316,15 @@ export function useGeofencing(restaurantes, deviceIdPrimed) {
         return;
       }
 
-      // Sincroniza (device_id, restaurante_id) → cliente_id en Supabase para
-      // cada sede en la que el usuario ya esté inscrito en ESTE dispositivo.
-      // Es lo único que le permite a `geofence-webhook` (app cerrada/en
-      // background, sin acceso a localStorage) resolver a quién abonarle
-      // los puntos — en foreground ya no lo necesita, ese caso lo resuelve
-      // `obtenerClienteIdParaSede()` directo desde localStorage.
-      sincronizarDispositivosCliente(deviceId, comercios);
-
       // setupGeofencing dispara internamente el flujo de dos pasos
       // (foreground primero, luego el upgrade a background) tanto en
       // Android como en iOS, usando los textos ya definidos en
       // AndroidManifest.xml / Info.plist.
       //
       // `url` es lo que permite recibir la transición con la app cerrada:
-      // el plugin hace un POST nativo (sin depender del WebView) al webhook,
-      // que a su vez dispara una notificación push real (FCM). El listener
-      // `geofenceTransition` de abajo sigue sirviendo para cuando la app
-      // está abierta/en foreground.
+      // el plugin hace un POST nativo (sin depender del WebView) al webhook.
+      // El listener `geofenceTransition` de abajo sigue sirviendo para
+      // cuando la app está abierta/en foreground (ver manejarTransicion).
       await BackgroundGeolocation.setupGeofencing({
         url: GEOFENCE_WEBHOOK_URL,
         backgroundLocation: true,

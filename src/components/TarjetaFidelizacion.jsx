@@ -2,9 +2,16 @@
  * TarjetaFidelizacion.jsx
  * Tarjeta visual tipo "wallet card" con nivel (Bronce/Plata/Oro),
  * puntos disponibles, barra de progreso al siguiente nivel y QR.
+ *
+ * CAMBIO: el saldo ya NO llega como prop calculado en el padre.
+ * Se consulta directamente la vista/tabla `saldo_usuario`, que
+ * solo contiene puntos vigentes (excluye puntos vencidos o ya
+ * consumidos por transacciones FIFO). Ajusta el nombre de columna
+ * `puntos_vigentes` si tu vista usa otro alias.
  */
 
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { supabase } from '../services/supabaseClient';
 
 // ── Definición de niveles ────────────────────────────────────────────────────
 const NIVELES = [
@@ -22,7 +29,55 @@ function getSiguienteNivel(puntosTotales) {
   return NIVELES.find(n => n.min > puntosTotales) ?? null;
 }
 
-export function TarjetaFidelizacion({ cliente, nombreRestaurante, puntosTotales = 0 }) {
+// ── Hook: saldo vigente del cliente ──────────────────────────────────────────
+// Lee de `saldo_usuario` (vista que ya resta puntos vencidos / redimidos vía
+// FIFO). Si tu proyecto expone esto como tabla materializada en vez de vista,
+// el .select funciona igual.
+function useSaldoVigente(clienteId, restauranteId) {
+  const [puntos, setPuntos]     = useState(0);
+  const [cargando, setCargando] = useState(true);
+  const [error, setError]       = useState(null);
+
+  useEffect(() => {
+    if (!clienteId) {
+      setCargando(false);
+      return;
+    }
+
+    let vivo = true;
+    setCargando(true);
+    setError(null);
+
+    let query = supabase
+      .from('saldo_usuario')
+      .select('puntos_vigentes')
+      .eq('cliente_id', clienteId);
+
+    if (restauranteId) {
+      query = query.eq('restaurante_id', restauranteId);
+    }
+
+    query.maybeSingle().then(({ data, error: err }) => {
+      if (!vivo) return;
+      if (err) {
+        console.error('Error consultando saldo_usuario:', err);
+        setError(err);
+        setPuntos(0);
+      } else {
+        setPuntos(data?.puntos_vigentes ?? 0);
+      }
+      setCargando(false);
+    });
+
+    return () => { vivo = false; };
+  }, [clienteId, restauranteId]);
+
+  return { puntos, cargando, error };
+}
+
+export function TarjetaFidelizacion({ cliente, restauranteId, nombreRestaurante }) {
+  const { puntos: puntosTotales, cargando } = useSaldoVigente(cliente?.id, restauranteId);
+
   const nivel          = useMemo(() => getNivel(puntosTotales), [puntosTotales]);
   const siguienteNivel = useMemo(() => getSiguienteNivel(puntosTotales), [puntosTotales]);
 
@@ -97,13 +152,15 @@ export function TarjetaFidelizacion({ cliente, nombreRestaurante, puntosTotales 
       {/* Puntos grandes */}
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, marginBottom: 12 }}>
         <span style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: '2.6rem', lineHeight: 1 }}>
-          {puntosTotales.toLocaleString()}
+          {cargando ? '—' : puntosTotales.toLocaleString()}
         </span>
-        <span style={{ fontSize: '0.85rem', opacity: 0.75, marginBottom: 6 }}>puntos disponibles</span>
+        <span style={{ fontSize: '0.85rem', opacity: 0.75, marginBottom: 6 }}>
+          {cargando ? 'cargando…' : 'puntos vigentes'}
+        </span>
       </div>
 
       {/* Barra de progreso al siguiente nivel */}
-      {siguienteNivel && (
+      {!cargando && siguienteNivel && (
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
             <span style={{ fontSize: '0.7rem', opacity: 0.75 }}>
@@ -128,7 +185,7 @@ export function TarjetaFidelizacion({ cliente, nombreRestaurante, puntosTotales 
         </div>
       )}
 
-      {!siguienteNivel && (
+      {!cargando && !siguienteNivel && (
         <p style={{ margin: '4px 0 0', fontSize: '0.75rem', opacity: 0.85, fontWeight: 600 }}>
           💎 Nivel máximo alcanzado · Eres un cliente élite
         </p>
