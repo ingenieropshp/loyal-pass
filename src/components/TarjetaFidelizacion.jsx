@@ -3,15 +3,16 @@
  * Tarjeta visual tipo "wallet card" con nivel (Bronce/Plata/Oro),
  * puntos disponibles, barra de progreso al siguiente nivel y QR.
  *
- * CAMBIO: el saldo ya NO llega como prop calculado en el padre.
- * Se consulta directamente la vista/tabla `saldo_usuario`, que
- * solo contiene puntos vigentes (excluye puntos vencidos o ya
- * consumidos por transacciones FIFO). Ajusta el nombre de columna
- * `puntos_vigentes` si tu vista usa otro alias.
+ * FIX: el saldo vuelve a llegar como prop (`puntosTotales`) calculado en
+ * UserDashboard.jsx, en vez de que este componente consulte por su cuenta
+ * la vista `saldo_usuario`. Antes se hacía esa consulta aquí filtrando por
+ * `restaurante_id`, pero ese filtro se rompía cuando el valor recibido en
+ * la URL era el NOMBRE del restaurante en vez de su UUID, y además la prop
+ * `puntosTotales` que ya llegaba desde el padre ni siquiera se estaba
+ * leyendo — por eso la tarjeta siempre mostraba 0.
  */
 
-import { useEffect, useMemo, useState } from 'react';
-import { supabase } from '../services/supabaseClient';
+import { useMemo } from 'react';
 
 // ── Definición de niveles ────────────────────────────────────────────────────
 const NIVELES = [
@@ -29,55 +30,12 @@ function getSiguienteNivel(puntosTotales) {
   return NIVELES.find(n => n.min > puntosTotales) ?? null;
 }
 
-// ── Hook: saldo vigente del cliente ──────────────────────────────────────────
-// Lee de `saldo_usuario` (vista que ya resta puntos vencidos / redimidos vía
-// FIFO). Si tu proyecto expone esto como tabla materializada en vez de vista,
-// el .select funciona igual.
-function useSaldoVigente(clienteId, restauranteId) {
-  const [puntos, setPuntos]     = useState(0);
-  const [cargando, setCargando] = useState(true);
-  const [error, setError]       = useState(null);
-
-  useEffect(() => {
-    if (!clienteId) {
-      setCargando(false);
-      return;
-    }
-
-    let vivo = true;
-    setCargando(true);
-    setError(null);
-
-    let query = supabase
-      .from('saldo_usuario')
-      .select('puntos_vigentes')
-      .eq('cliente_id', clienteId);
-
-    if (restauranteId) {
-      query = query.eq('restaurante_id', restauranteId);
-    }
-
-    query.maybeSingle().then(({ data, error: err }) => {
-      if (!vivo) return;
-      if (err) {
-        console.error('Error consultando saldo_usuario:', err);
-        setError(err);
-        setPuntos(0);
-      } else {
-        setPuntos(data?.puntos_vigentes ?? 0);
-      }
-      setCargando(false);
-    });
-
-    return () => { vivo = false; };
-  }, [clienteId, restauranteId]);
-
-  return { puntos, cargando, error };
-}
-
-export function TarjetaFidelizacion({ cliente, restauranteId, nombreRestaurante }) {
-  const { puntos: puntosTotales, cargando } = useSaldoVigente(cliente?.id, restauranteId);
-
+export function TarjetaFidelizacion({
+  cliente,
+  nombreRestaurante,
+  puntosTotales = 0,   // saldo vigente ya resuelto por UserDashboard.jsx
+  cargandoPuntos: cargando = false,
+}) {
   const nivel          = useMemo(() => getNivel(puntosTotales), [puntosTotales]);
   const siguienteNivel = useMemo(() => getSiguienteNivel(puntosTotales), [puntosTotales]);
 

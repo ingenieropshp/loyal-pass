@@ -7,6 +7,13 @@ import './UserDashboard.css';
 
 // TOTAL_PUNTOS eliminado — ahora se lee de la tabla conexion (configurable por admin)
 
+// El parámetro `restauranteId` puede llegar como el UUID real o, por un bug
+// de la URL de invitación (`?r=101%20Bistro`), como el NOMBRE del
+// restaurante. Cuando no es un UUID válido, cualquier filtro `.eq('restaurante_id', …)`
+// contra columnas uuid no hace match y las consultas devuelven 0 filas.
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const isValidUUID = (valor) => typeof valor === 'string' && UUID_REGEX.test(valor);
+
 export const UserDashboard = ({
   restauranteId,
   clienteId,
@@ -18,6 +25,54 @@ export const UserDashboard = ({
   const [cliente,        setCliente]        = useState(null);
   const [mostrarPerfil,  setMostrarPerfil]  = useState(false); // panel de "Perfil / Cerrar sesión"
   const [mostrarRedimir, setMostrarRedimir] = useState(false); // modal "Pagar con puntos"
+  const [puntosVigentes, setPuntosVigentes] = useState(null); // saldo mostrado en la tarjeta
+  const [cargandoPuntos, setCargandoPuntos] = useState(true);
+
+  // ── Cargar saldo de puntos ───────────────────────────────────────────────
+  // 1) Fuente de verdad simple: el campo `puntos` de la tabla `clientes`
+  //    (filtrando por `id`, o por `auth_user_id` si el clienteId corresponde
+  //    al usuario autenticado en vez del id de la fila de clientes).
+  // 2) Si existe la vista `saldo_usuario` (resta puntos vencidos/redimidos
+  //    vía FIFO), se usa ese valor más preciso — pero el filtro
+  //    `restaurante_id` solo se aplica si `restauranteId` es un UUID válido,
+  //    porque el enlace de invitación a veces envía el NOMBRE del
+  //    restaurante (`?r=101%20Bistro`) en vez de su UUID.
+  const cargarPuntos = async () => {
+    if (!clienteId) return;
+    setCargandoPuntos(true);
+
+    const { data: filaCliente, error: errorCliente } = await supabase
+      .from('clientes')
+      .select('puntos')
+      .or(`id.eq.${clienteId},auth_user_id.eq.${clienteId}`)
+      .maybeSingle();
+
+    let saldo = !errorCliente ? (filaCliente?.puntos ?? 0) : 0;
+
+    let query = supabase
+      .from('saldo_usuario')
+      .select('puntos_vigentes')
+      .eq('cliente_id', clienteId);
+
+    if (isValidUUID(restauranteId)) {
+      query = query.eq('restaurante_id', restauranteId);
+    } else if (restauranteId) {
+      console.warn(
+        '[UserDashboard] restauranteId no es un UUID válido, se omite el filtro en saldo_usuario:',
+        restauranteId
+      );
+    }
+
+    const { data: filaSaldo, error: errorSaldo } = await query.maybeSingle();
+    if (!errorSaldo && filaSaldo?.puntos_vigentes != null) {
+      saldo = filaSaldo.puntos_vigentes;
+    }
+
+    setPuntosVigentes(saldo);
+    setCargandoPuntos(false);
+  };
+
+  useEffect(() => { cargarPuntos(); }, [clienteId, restauranteId]);
 
   // ── Service Worker ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -91,7 +146,7 @@ export const UserDashboard = ({
 
   if (!cliente) return <div className="loading-container">Sincronizando…</div>;
 
-  const puntos     = cliente.puntos || 0;
+  const puntos     = puntosVigentes ?? cliente.puntos ?? 0;
 
   // ── Render ─────────────────────────────────────────────────────────────
   return (
@@ -102,6 +157,7 @@ export const UserDashboard = ({
         cliente={cliente}
         nombreRestaurante={nombreRestaurante}
         puntosTotales={puntos}
+        cargandoPuntos={cargandoPuntos}
       />
 
       {/* Header nombre + acceso a perfil/configuración */}
@@ -202,6 +258,7 @@ export const UserDashboard = ({
         restauranteId={restauranteId}
         onRedencionExitosa={(nuevoSaldo) => {
           setCliente(prev => (prev ? { ...prev, puntos: nuevoSaldo } : prev));
+          setPuntosVigentes(nuevoSaldo);
         }}
       />
     </div>
