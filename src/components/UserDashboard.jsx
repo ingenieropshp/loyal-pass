@@ -3,7 +3,10 @@ import { supabase } from '../services/supabaseClient';
 import { TarjetaFidelizacion }              from './TarjetaFidelizacion';
 import { HistorialPuntos }                  from './HistorialPuntos';
 import RedimirPuntosModal                   from './RedimirPuntosModal';
+import { BarraProgresoPuntos }              from './BarraProgresoPuntos';
+import { useGeofencingContext }             from './GeofencingProvider';
 import './UserDashboard.css';
+import './BarraProgresoPuntos.css';
 
 // TOTAL_PUNTOS eliminado — ahora se lee de la tabla conexion (configurable por admin)
 
@@ -27,6 +30,13 @@ export const UserDashboard = ({
   const [mostrarRedimir, setMostrarRedimir] = useState(false); // modal "Pagar con puntos"
   const [puntosVigentes, setPuntosVigentes] = useState(null); // saldo mostrado en la tarjeta
   const [cargandoPuntos, setCargandoPuntos] = useState(true);
+
+  // Bono real de check-in por geocerca para ESTE restaurante (dinámico,
+  // configurado por el admin en la tabla `conexion` vía puntos_llegada;
+  // default 2 si no fue configurado — ver GeofencingProvider.jsx). Se llama
+  // aquí arriba, antes de cualquier `return` condicional, por las reglas de
+  // hooks de React.
+  const { restaurantes: restaurantesGeofencing } = useGeofencingContext();
 
   // ── Cargar saldo de puntos ───────────────────────────────────────────────
   // 1) Fuente de verdad simple: el campo `puntos` de la tabla `clientes`
@@ -148,6 +158,11 @@ export const UserDashboard = ({
 
   const puntos     = puntosVigentes ?? cliente.puntos ?? 0;
 
+  const restauranteActual = restaurantesGeofencing.find(
+    r => r.restaurante_id === restauranteId
+  );
+  const puntosLlegada = restauranteActual?.puntos_llegada ?? null;
+
   // ── Render ─────────────────────────────────────────────────────────────
   return (
     <div className="dashboard-container animate-fade-in">
@@ -158,6 +173,14 @@ export const UserDashboard = ({
         nombreRestaurante={nombreRestaurante}
         puntosTotales={puntos}
         cargandoPuntos={cargandoPuntos}
+      />
+
+      {/* ── Mis Puntos: progreso hacia el mínimo de redención ─────────── */}
+      <BarraProgresoPuntos
+        puntosActual={puntos}
+        cargando={cargandoPuntos}
+        puntosLlegada={puntosLlegada}
+        onPagarConPuntos={() => setMostrarRedimir(true)}
       />
 
       {/* Header nombre + acceso a perfil/configuración */}
@@ -234,11 +257,6 @@ export const UserDashboard = ({
           cliente ya no escanea ni valida códigos desde la app — solo dicta
           su cédula en caja y el cajero registra el consumo. */}
       <div className="actions-stack">
-        {puntos >= 15000 && (
-          <button onClick={() => setMostrarRedimir(true)} className="btn-share" style={{ background: 'var(--coral)', color: 'white' }}>
-            💳 Pagar con mis puntos
-          </button>
-        )}
         <button onClick={compartirInvitacion} className="btn-share">
           📢 Invitar a un amigo
         </button>

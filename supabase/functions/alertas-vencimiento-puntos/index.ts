@@ -1,54 +1,41 @@
-// supabase/functions/alertas-vencimiento-puntos/index.ts
-//
-// Envía notificaciones push a clientes cuyos puntos vencerán en ~30 días,
-// segmentadas según SALDO TOTAL ACTUAL (no solo el lote por vencer):
-//   - Grupo A (saldo_actual >= 15.000): ya puede redimir → invitación directa
-//   - Grupo B (saldo_actual <  15.000): aún no califica → incentivo a comprar
-//
-// Pensada para correr mensualmente vía pg_cron + pg_net.
-//
-// Variables de entorno requeridas (Project Settings → Edge Functions → Secrets):
-//   SUPABASE_URL
-//   SUPABASE_SERVICE_ROLE_KEY
-//   FCM_SERVICE_ACCOUNT_JSON   -> JSON completo de la cuenta de servicio Firebase
-//   FCM_PROJECT_ID             -> project_id de Firebase
+import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.38.4";
+import * as jose from "https://esm.sh/jose@4.15.4";
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { SignJWT, importPKCS8 } from "https://esm.sh/jose@5";
+// Inicialización de constantes y variables de entorno de Supabase
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
+const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 
-const MINIMO_REDENCION = 15000;
-const LOTE_ENVIO = 300; // clientes procesados en paralelo por tanda
+// Configuración de Google Firebase Cloud Messaging (FCM v1)
+const FIREBASE_PROJECT_ID = Deno.env.get("FIREBASE_PROJECT_ID") ?? "";
+const FIREBASE_CLIENT_EMAIL = Deno.env.get("FIREBASE_CLIENT_EMAIL") ?? "";
+const FIREBASE_PRIVATE_KEY = (Deno.env.get("FIREBASE_PRIVATE_KEY") ?? "").replace(/\\n/g, "\n");
 
-// Acepta el secreto como JSON crudo o como base64 del JSON (recomendado en
-// Windows/PowerShell, donde pegar un JSON completo con comillas y saltos de
-// línea dentro de un string de shell es propenso a errores de escape).
-function decodificarServiceAccount(raw: string): Record<string, string> {
-  const valor = raw.trim();
-  if (valor.startsWith("{")) return JSON.parse(valor);
+const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-  const binario = atob(valor);
-  const bytes = Uint8Array.from(binario, (c) => c.charCodeAt(0));
-  const json = new TextDecoder().decode(bytes);
-  return JSON.parse(json);
+interface ClienteNotificar {
+  cliente_id: string;
+  nombre: string;
+  total_por_vencer: number;
+  token_dispositivo: string | null;
 }
 
-// ── Autenticación con Firebase (FCM HTTP v1) ─────────────────────────────────
-async function obtenerTokenAccesoFCM(secretoCrudo: string): Promise<string> {
-  const cuenta = decodificarServiceAccount(secretoCrudo);
-  const clavePrivada = await importPKCS8(cuenta.private_key, "RS256");
-
-  const jwt = await new SignJWT({
+/**
+ * Genera un token de acceso OAuth2 para la API FCM v1 utilizando la llave privada de Firebase
+ */
+async function obtenerTokenAccesoFCM(): Promise<string> {
+  const jwt = await new jose.SignJWT({
+    iss: FIREBASE_CLIENT_EMAIL,
+    sub: FIREBASE_CLIENT_EMAIL,
+    aud: "https://oauth2.googleapis.com/token",
     scope: "https://www.googleapis.com/auth/firebase.messaging",
   })
-    .setProtectedHeader({ alg: "RS256", typ: "JWT" })
+    .setProtectedHeader({ alg: "RS256" })
     .setIssuedAt()
-    .setIssuer(cuenta.client_email)
-    .setSubject(cuenta.client_email)
-    .setAudience("https://oauth2.googleapis.com/token")
     .setExpirationTime("1h")
-    .sign(clavePrivada);
+    .sign(await jose.importPKCS8(FIREBASE_PRIVATE_KEY, "RS256"));
 
-  const resp = await fetch("https://oauth2.googleapis.com/token", {
+  const response = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
@@ -57,198 +44,200 @@ async function obtenerTokenAccesoFCM(secretoCrudo: string): Promise<string> {
     }),
   });
 
-  if (!resp.ok) throw new Error(`No se pudo obtener token FCM: ${await resp.text()}`);
-  const data = await resp.json();
-  return data.access_token as string;
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Error de autenticación OAuth2 de Firebase: ${errorText}`);
+  }
+
+  const data = await response.json();
+  return data.access_token;
 }
 
+/**
+ * Despacha la notificación Push mediante HTTP v1 a Google
+ */
 async function enviarPushFCM(
   accessToken: string,
-  projectId: string,
   tokenDispositivo: string,
   titulo: string,
-  cuerpo: string,
-) {
-  const resp = await fetch(
-    `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`,
-    {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        message: { token: tokenDispositivo, notification: { title: titulo, body: cuerpo } },
-      }),
+  cuerpo: string
+): Promise<boolean> {
+  const url = `https://fcm.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/messages:send`;
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
     },
-  );
-  const data = await resp.json().catch(() => null);
-  return { ok: resp.ok, status: resp.status, data };
+    body: JSON.stringify({
+      message: {
+        token: tokenDispositivo,
+        notification: {
+          title: titulo,
+          body: cuerpo,
+        },
+        android: {
+          priority: "high",
+          notification: {
+            sound: "default",
+          },
+        },
+      },
+    }),
+  });
+
+  return response.ok;
 }
 
-// ── Plantillas de mensaje por segmento ───────────────────────────────────────
-// El texto usa total_por_vencer (lo puntual en riesgo, genera urgencia real);
-// la bifurcación y el "faltante" usan saldo_actual (elegibilidad real de FIFO).
-function construirMensajeGrupoA(nombre: string, totalPorVencer: number) {
-  return {
-    titulo: "⏳ ¡Aprovecha tus puntos antes de que venzan!",
-    mensaje:
-      `Hola ${nombre}, tienes ${totalPorVencer.toLocaleString("es-CO")} puntos ` +
-      `($${totalPorVencer.toLocaleString("es-CO")} COP) listos para usar que vencerán pronto. ` +
-      `Recuerda que puedes pagar total o parcialmente tus consumos en el restaurante. ` +
-      `¡Ven hoy mismo y redímelos en caja!`,
-  };
-}
-
-function construirMensajeGrupoB(nombre: string, totalPorVencer: number, faltantes: number) {
-  return {
-    titulo: "💡 ¡Estás muy cerca de desbloquear tu descuento!",
-    mensaje:
-      `Hola ${nombre}, tienes ${totalPorVencer.toLocaleString("es-CO")} puntos acumulados ` +
-      `próximos a vencer. Recuerda que al llegar a ${MINIMO_REDENCION.toLocaleString("es-CO")} ` +
-      `puntos podrás usarlos como dinero real en el restaurante. ¡Te faltan solo ` +
-      `${faltantes.toLocaleString("es-CO")} puntos! Visítanos este mes, acumula con tu visita ` +
-      `y compra física, y salva tu saldo.`,
-  };
-}
-
-type ClienteEnRiesgo = {
-  cliente_id: string;
-  nombre: string;
-  saldo_actual: number;
-  total_por_vencer: number;
-  token_dispositivo: string | null;
-};
-
-Deno.serve(async (req) => {
-  const auth = req.headers.get("Authorization") ?? "";
-  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-  if (auth !== `Bearer ${serviceKey}`) {
-    return new Response("No autorizado", { status: 401 });
+serve(async (req) => {
+  // Manejo de solicitudes pre-vuelo para CORS
+  if (req.method === "OPTIONS") {
+    return new Response("ok", {
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "POST",
+        "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+      },
+    });
   }
 
-  const supabase = createClient(Deno.env.get("SUPABASE_URL")!, serviceKey);
-
-  const { data: clientes, error } = await supabase.rpc("fn_clientes_puntos_por_vencer");
-
-  if (error) {
-    console.error("Error consultando fn_clientes_puntos_por_vencer:", error);
-    return new Response(JSON.stringify({ ok: false, error: error.message }), { status: 500 });
-  }
-
-  if (!clientes || clientes.length === 0) {
-    return new Response(JSON.stringify({ ok: true, procesados: 0 }), { status: 200 });
-  }
-
-  let accessToken: string;
   try {
-    accessToken = await obtenerTokenAccesoFCM(Deno.env.get("FCM_SERVICE_ACCOUNT_JSON")!);
-  } catch (err) {
-    console.error("No se pudo autenticar contra FCM:", err);
-    return new Response(JSON.stringify({ ok: false, error: "auth_fcm_fallida" }), { status: 500 });
-  }
+    // 1. Obtener Token de Acceso para Google Firebase
+    const fcmToken = await obtenerTokenAccesoFCM();
 
-  const projectId = Deno.env.get("FCM_PROJECT_ID")!;
-  const registros: Record<string, unknown>[] = [];
-  // fecha_vencimiento es timestamptz: usamos timestamps completos (no solo la
-  // fecha) para no cortar el límite superior a medianoche UTC y descartar
-  // horas válidas del último día de la ventana.
-  const ahoraISO = new Date().toISOString();
-  const limiteVencimiento = new Date();
-  limiteVencimiento.setDate(limiteVencimiento.getDate() + 30);
-  const limiteVencimientoISO = limiteVencimiento.toISOString();
+    // 2. Invocar la función RPC que calcula los puntos por vencer
+    const { data: clientesAfectados, error: rpcError } = await supabase.rpc(
+      "fn_clientes_puntos_por_vencer"
+    );
 
-  const procesarCliente = async (cliente: ClienteEnRiesgo) => {
-    // ── Bifurcación estricta por SALDO TOTAL (requisito #2 de la spec) ──────
-    const esGrupoA = cliente.saldo_actual >= MINIMO_REDENCION;
-    const faltantes = esGrupoA ? null : MINIMO_REDENCION - cliente.saldo_actual;
+    if (rpcError) throw rpcError;
 
-    const { titulo, mensaje } = esGrupoA
-      ? construirMensajeGrupoA(cliente.nombre, cliente.total_por_vencer)
-      : construirMensajeGrupoB(cliente.nombre, cliente.total_por_vencer, faltantes!);
+    const resultados = {
+      notificados_apto: 0,
+      notificados_incentivo: 0,
+      sin_token: 0,
+      errores: 0,
+    };
 
-    if (!cliente.token_dispositivo) {
-      registros.push({
-        cliente_id: cliente.cliente_id,
-        tipo: "sin_token",
-        titulo: null,
-        contenido: null,
-        estado_envio: "sin_token",
-      });
-      return;
+    const logsAuditoria = [];
+
+    // 3. Procesamiento y segmentación de cada cliente
+    for (const cliente of (clientesAfectados as ClienteNotificar[])) {
+      const { cliente_id, nombre, total_por_vencer, token_dispositivo } = cliente;
+
+      // Caso C: Cliente no tiene token configurado en su celular
+      if (!token_dispositivo) {
+        resultados.sin_token++;
+        logsAuditoria.push({
+          cliente_id,
+          tipo: "sin_token",
+          titulo: "Sin acción",
+          contenido: `Cliente ${nombre} tiene ${total_por_vencer} pts por vencer pero no cuenta con token registrado.`,
+          estado_envio: "sin_token",
+        });
+        continue;
+      }
+
+      let titulo = "";
+      let cuerpo = "";
+      let tipoNotificacion = "";
+
+      // Segmentación Coherente con Reglas de Negocio
+      if (total_por_vencer >= 15000) {
+        // GRUPO A: Puede redimir directamente (Mínimo de 15,000 pts cumplido)
+        tipoNotificacion = "alerta_vencimiento_apto";
+        titulo = "⏳ ¡Aprovecha tus puntos antes de que venzan!";
+        cuerpo = `Hola ${nombre}, tienes ${total_por_vencer.toLocaleString()} puntos ($${total_por_vencer.toLocaleString()} COP) listos para usar que vencerán pronto. Recuerda que puedes pagar total o parcialmente tus consumos en el restaurante. ¡Ven hoy mismo y redímelos en caja!`;
+      } else {
+        // GRUPO B: No alcanza el mínimo de redención. Incentivo a la compra física.
+        tipoNotificacion = "alerta_vencimiento_incentivo";
+        const faltantes = 15000 - total_por_vencer;
+        titulo = "💡 ¡Estás muy cerca de desbloquear tu descuento!";
+        cuerpo = `Hola ${nombre}, tienes ${total_por_vencer.toLocaleString()} puntos acumulados próximos a vencer. Recuerda que al llegar a 15,000 puntos podrás usarlos como dinero real en el restaurante. ¡Te faltan solo ${faltantes.toLocaleString()} puntos! Visítanos este mes, acumula con tu visita y compra física, y salva tu saldo.`;
+      }
+
+      // 4. Enviar Push a través de Firebase
+      const enviado = await enviarPushFCM(fcmToken, token_dispositivo, titulo, cuerpo);
+
+      if (enviado) {
+        if (total_por_vencer >= 15000) {
+          resultados.notificados_apto++;
+        } else {
+          resultados.notificados_incentivo++;
+        }
+
+        // Registrar para actualizar la tabla de transacciones de puntos
+        logsAuditoria.push({
+          cliente_id,
+          tipo: tipoNotificacion,
+          titulo,
+          contenido: cuerpo,
+          estado_envio: "exitoso",
+        });
+      } else {
+        resultados.errores++;
+        logsAuditoria.push({
+          cliente_id,
+          tipo: tipoNotificacion,
+          titulo,
+          contenido: cuerpo,
+          estado_envio: "fallido",
+        });
+      }
     }
 
-    const tipo = esGrupoA ? "alerta_vencimiento_apto" : "alerta_vencimiento_incentivo";
-
-    try {
-      const resultado = await enviarPushFCM(
-        accessToken,
-        projectId,
-        cliente.token_dispositivo,
-        titulo,
-        mensaje,
+    // 5. Inserción masiva de auditoría de notificaciones en la base de datos
+    if (logsAuditoria.length > 0) {
+      await supabase.from("historial_notificaciones").insert(
+        logsAuditoria.map((log) => ({
+          cliente_id: log.cliente_id,
+          tipo: log.tipo,
+          titulo: log.titulo,
+          contenido: log.contenido,
+          estado_envio: log.estado_envio,
+        }))
       );
 
-      registros.push({
-        cliente_id: cliente.cliente_id,
-        tipo,
-        titulo,
-        contenido: mensaje,
-        estado_envio: resultado.ok ? "exitoso" : "fallido",
-      });
+      // 6. Idempotencia: Marcar los lotes notificados como TRUE en la base de datos
+      const exitososIds = logsAuditoria
+        .filter((l) => l.estado_envio === "exitoso")
+        .map((l) => l.cliente_id);
 
-      if (resultado.ok) {
-        // Marca notificados SOLO los lotes que quedaron dentro del rango que
-        // se acaba de procesar para este cliente (idempotencia).
-        const { error: errUpdate } = await supabase
+      if (exitososIds.length > 0) {
+        await supabase
           .from("transacciones_puntos")
           .update({ notificado_vencimiento: true })
-          .eq("cliente_id", cliente.cliente_id)
-          .gt("puntos_restantes", 0)
+          .in("cliente_id", exitososIds)
           .eq("notificado_vencimiento", false)
-          .gte("fecha_vencimiento", ahoraISO)
-          .lte("fecha_vencimiento", limiteVencimientoISO);
-
-        if (errUpdate) {
-          console.error(`Error marcando lotes notificados de ${cliente.cliente_id}:`, errUpdate);
-        }
+          .lte("fecha_vencimiento", new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]);
       }
-    } catch (err) {
-      registros.push({
-        cliente_id: cliente.cliente_id,
-        tipo,
-        titulo,
-        contenido: mensaje,
-        estado_envio: "fallido",
-      });
-      console.error(`Error enviando push a ${cliente.cliente_id}:`, err);
     }
-  };
 
-  for (let i = 0; i < clientes.length; i += LOTE_ENVIO) {
-    const tanda = clientes.slice(i, i + LOTE_ENVIO) as ClienteEnRiesgo[];
-    await Promise.allSettled(tanda.map(procesarCliente));
+    return new Response(
+      JSON.stringify({
+        success: true,
+        resultados,
+      }),
+      {
+        headers: {
+          "Content-Type": "application/json",
+          "Access-Control-Allow-Origin": "*",
+        },
+      }
+    );
+  } catch (error: any) {
+    return new Response(
+      JSON.stringify({
+        success: false,
+        error: error.message,
+      }),
+      {
+        status: 500,
+        headers: {
+          "Content-Type": "application/json",
+          "Access-Control-Allow-Origin": "*",
+        },
+      }
+    );
   }
-
-  const { error: errorAuditoria } = await supabase
-    .from("historial_notificaciones")
-    .insert(registros);
-  if (errorAuditoria) {
-    console.error("Error guardando historial_notificaciones:", errorAuditoria);
-  }
-
-  const resumen = {
-    ok: true,
-    total: clientes.length,
-    grupo_a: registros.filter((r) => r.tipo === "alerta_vencimiento_apto").length,
-    grupo_b: registros.filter((r) => r.tipo === "alerta_vencimiento_incentivo").length,
-    exitosos: registros.filter((r) => r.estado_envio === "exitoso").length,
-    fallidos: registros.filter((r) => r.estado_envio === "fallido").length,
-    sin_token: registros.filter((r) => r.estado_envio === "sin_token").length,
-  };
-
-  return new Response(JSON.stringify(resumen), {
-    status: 200,
-    headers: { "Content-Type": "application/json" },
-  });
 });
