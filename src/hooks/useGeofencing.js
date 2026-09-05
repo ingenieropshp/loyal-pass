@@ -157,6 +157,14 @@ async function asegurarCanalNotificacionNativo() {
 // Mapea el shape que entrega GeofencingProvider (restaurante_id, latitud,
 // longitud, radio_aviso...) al shape que exige @capgo/background-geolocation
 // (id, latitude, longitude, radius).
+//
+// `radio_aviso` es configurable por restaurante (columna en la tabla
+// `conexion`). Si no viene definido o no es un número válido, se usa 100m
+// por defecto (antes era 200m). RADIO_MINIMO_METROS sigue actuando como piso
+// de seguridad para evitar radios demasiado chicos que generen falsos
+// negativos/positivos por el margen de error normal del GPS.
+const RADIO_AVISO_METROS_DEFECTO = 100;
+
 function mapearAComercios(restaurantes) {
   return restaurantes
     .filter(
@@ -170,7 +178,10 @@ function mapearAComercios(restaurantes) {
       nombre: r.nombre ?? 'Restaurante',
       latitude: parseFloat(r.latitud),
       longitude: parseFloat(r.longitud),
-      radius: Math.max(parseInt(r.radio_aviso, 10) || 200, RADIO_MINIMO_METROS),
+      radius: Math.max(
+        parseInt(r.radio_aviso, 10) || RADIO_AVISO_METROS_DEFECTO,
+        RADIO_MINIMO_METROS
+      ),
       mensaje_promo: r.mensaje_promo,
       puntos_llegada: r.puntos_llegada ?? 2,
     }));

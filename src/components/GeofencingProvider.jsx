@@ -100,7 +100,7 @@ export function GeofencingProvider({ children }) {
             nombre:         configMap[r.restaurante_id]?.nombre ?? 'Restaurante',
             latitud:        parseFloat(r.latitud),
             longitud:       parseFloat(r.longitud),
-            radio_aviso:    r.radio_aviso    ?? 200,
+            radio_aviso:    r.radio_aviso    ?? 100,
             puntos_llegada: r.puntos_llegada ?? 2,
             meta_puntos:    r.meta_puntos    ?? 20,
             mensaje_promo:  r.mensaje_promo  ?? '',
