@@ -162,6 +162,7 @@ export const UserDashboard = ({
     r => r.restaurante_id === restauranteId
   );
   const puntosLlegada = restauranteActual?.puntos_llegada ?? null;
+  const puntosGeocerca = restauranteActual?.puntos_geocerca ?? null;
   const mensajeIncentivoConsumo = restauranteActual?.mensaje_incentivo_consumo || null;
 
   // ── Render ─────────────────────────────────────────────────────────────
@@ -181,6 +182,7 @@ export const UserDashboard = ({
         puntosActual={puntos}
         cargando={cargandoPuntos}
         puntosLlegada={puntosLlegada}
+        puntosGeocerca={puntosGeocerca}
         mensajeIncentivoConsumo={mensajeIncentivoConsumo}
         onPagarConPuntos={() => setMostrarRedimir(true)}
       />

@@ -62,7 +62,7 @@ export function GeofencingProvider({ children }) {
         // Query 1: coordenadas y config de puntos (tabla conexion)
         const { data: conexiones, error: err1 } = await supabase
           .from('conexion')
-          .select('restaurante_id, latitud, longitud, radio_aviso, puntos_llegada, meta_puntos, mensaje_promo, mensaje_incentivo_consumo')
+          .select('restaurante_id, latitud, longitud, radio_aviso, puntos_llegada, puntos_geocerca, meta_puntos, mensaje_promo, mensaje_incentivo_consumo')
           .not('latitud', 'is', null)
           .not('longitud', 'is', null);
 
@@ -101,7 +101,8 @@ export function GeofencingProvider({ children }) {
             latitud:        parseFloat(r.latitud),
             longitud:       parseFloat(r.longitud),
             radio_aviso:    r.radio_aviso    ?? 100,
-            puntos_llegada: r.puntos_llegada ?? 2,
+            puntos_llegada: r.puntos_llegada ?? 300,
+            puntos_geocerca: r.puntos_geocerca ?? 200,
             meta_puntos:    r.meta_puntos    ?? 20,
             mensaje_promo:  r.mensaje_promo  ?? '',
             mensaje_incentivo_consumo: r.mensaje_incentivo_consumo ?? '',

@@ -3,8 +3,10 @@
  * Tarjeta "Mis Puntos" de la pantalla principal: barra de progreso hacia el
  * mínimo de redención (15.000 pts), con dos estados visuales.
  *
- * El tip "Asiste al local" usa el bono real de check-in por geocerca
- * (`puntos_llegada`, configurado por restaurante en `conexion`/`configuracion`).
+ * El tip "Asiste al local" combina los dos bonos reales de llegada:
+ * `puntos_geocerca` (automático, al entrar al radio) + `puntos_llegada`
+ * (fijo, al pagar en caja con cédula — ya no hay check-in manual GPS/PIN).
+ * Ambos configurados por restaurante en `conexion`/`configuracion`.
  * El tip "Por tus consumos" usa `mensajeIncentivoConsumo`, un texto libre
  * editable desde el panel admin (campo "Mensaje de incentivo por consumo").
  * Si el admin no lo configuró, se muestra un texto genérico sin cifras en
@@ -16,7 +18,8 @@ const MINIMO_REDENCION = 15000; // debe coincidir con el resto del sistema (back
 export function BarraProgresoPuntos({
   puntosActual = 0,
   cargando = false,
-  puntosLlegada = null,           // bono real de check-in por geocerca (useGeofencingContext)
+  puntosLlegada = null,           // bono fijo al pagar en caja (useGeofencingContext)
+  puntosGeocerca = null,          // bono automático al entrar al radio de geocerca
   mensajeIncentivoConsumo = null, // texto editable desde el panel admin (config.mensajeIncentivoConsumo)
   onPagarConPuntos,                // abre el modal de redención existente
 }) {
@@ -64,8 +67,12 @@ export function BarraProgresoPuntos({
               <span className="tip-icono">📍</span>
               <span>
                 Asiste al local
-                {puntosLlegada != null && (
-                  <> <b>(+{puntosLlegada} pts por check-in de llegada)</b></>
+                {(puntosGeocerca != null || puntosLlegada != null) && (
+                  <> <b>(
+                    {puntosGeocerca != null && `+${puntosGeocerca} pts por cercanía`}
+                    {puntosGeocerca != null && puntosLlegada != null && ' + '}
+                    {puntosLlegada != null && `${puntosGeocerca == null ? '+' : ''}${puntosLlegada} pts por ordenar en caja`}
+                  )</b></>
                 )}
               </span>
             </div>
