@@ -26,3 +26,5 @@ dist-ssr
 secrets.env
 
 secrets.env
+
+firebase-service-account.json
