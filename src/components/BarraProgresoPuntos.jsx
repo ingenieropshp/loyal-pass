@@ -3,14 +3,12 @@
  * Tarjeta "Mis Puntos" de la pantalla principal: barra de progreso hacia el
  * mínimo de redención (15.000 pts), con dos estados visuales.
  *
- * NOTA sobre las cifras del tip de "Gana Puntos Rápido": el bono por llegar
- * al local (`puntos_llegada`) es dinámico y se configura por restaurante en
- * la tabla `conexion` (con default de 2 pts si el admin no lo configuró) —
- * se lee del contexto de geofencing real, no se inventa. No hay en este
- * cliente ninguna tasa fija de "puntos por consumo" ni un bono de "ordenar
- * en mesa", así que ese tip se deja genérico a propósito en vez de mostrar
- * una cifra falsa. Si tu backend sí tiene esa tasa, pásala por la prop
- * `puntosPorConsumo` (opcional) y se mostrará automáticamente.
+ * El tip "Asiste al local" usa el bono real de check-in por geocerca
+ * (`puntos_llegada`, configurado por restaurante en `conexion`/`configuracion`).
+ * El tip "Por tus consumos" usa `mensajeIncentivoConsumo`, un texto libre
+ * editable desde el panel admin (campo "Mensaje de incentivo por consumo").
+ * Si el admin no lo configuró, se muestra un texto genérico sin cifras en
+ * vez de inventar una tasa que no existe.
  */
 
 const MINIMO_REDENCION = 15000; // debe coincidir con el resto del sistema (backend de redención y de alertas de vencimiento)
@@ -18,9 +16,9 @@ const MINIMO_REDENCION = 15000; // debe coincidir con el resto del sistema (back
 export function BarraProgresoPuntos({
   puntosActual = 0,
   cargando = false,
-  puntosLlegada = null,      // bono real de check-in por geocerca (useGeofencingContext)
-  puntosPorConsumo = null,   // opcional: { puntos, montoCOP } si tu backend define una tasa fija
-  onPagarConPuntos,          // abre el modal de redención existente
+  puntosLlegada = null,           // bono real de check-in por geocerca (useGeofencingContext)
+  mensajeIncentivoConsumo = null, // texto editable desde el panel admin (config.mensajeIncentivoConsumo)
+  onPagarConPuntos,                // abre el modal de redención existente
 }) {
   const metaAlcanzada = puntosActual >= MINIMO_REDENCION;
   const proporcion    = Math.min(puntosActual / MINIMO_REDENCION, 1);
@@ -75,8 +73,8 @@ export function BarraProgresoPuntos({
               <span className="tip-icono">🧾</span>
               <span>
                 Por tus consumos
-                {puntosPorConsumo?.puntos && puntosPorConsumo?.montoCOP ? (
-                  <> <b>(+{puntosPorConsumo.puntos} pts por cada ${puntosPorConsumo.montoCOP.toLocaleString('es-CO')} COP)</b></>
+                {mensajeIncentivoConsumo?.trim() ? (
+                  <> — <b>{mensajeIncentivoConsumo.trim()}</b></>
                 ) : (
                   <> — acumula puntos con cada compra en el restaurante</>
                 )}
