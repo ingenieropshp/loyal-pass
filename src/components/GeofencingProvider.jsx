@@ -59,10 +59,11 @@ export function GeofencingProvider({ children }) {
   useEffect(() => {
     const cargar = async () => {
       try {
-        // Query 1: coordenadas y config de puntos (tabla conexion)
+        // Query 1: coordenadas de geolocalización (tabla conexion — sin cambios,
+        // esto sigue siendo geo, no algoritmo de fidelización)
         const { data: conexiones, error: err1 } = await supabase
           .from('conexion')
-          .select('restaurante_id, latitud, longitud, radio_aviso, puntos_llegada, puntos_geocerca, meta_puntos, mensaje_promo, mensaje_incentivo_consumo')
+          .select('restaurante_id, latitud, longitud, radio_aviso, mensaje_promo')
           .not('latitud', 'is', null)
           .not('longitud', 'is', null);
 
@@ -85,9 +86,22 @@ export function GeofencingProvider({ children }) {
           // Continuar sin filtrar por activo si falla esta query
         }
 
-        // Combinar los dos resultados manualmente
+        // Query 3: algoritmo de fidelización (tabla configuracion_restaurantes)
+        const { data: fidelizacion, error: err3 } = await supabase
+          .from('configuracion_restaurantes')
+          .select('restaurante_id, puntos_geocerca_proximidad, puntos_pago_caja, monto_minimo_redencion, mensaje_incentivo_consumo')
+          .in('restaurante_id', ids);
+
+        if (err3) {
+          console.warn('[GeofencingProvider] No se pudo cargar configuracion_restaurantes:', err3.message);
+        }
+
+        // Combinar los tres resultados manualmente
         const configMap = {};
         (configs || []).forEach(c => { configMap[c.id] = c; });
+
+        const fidelizacionMap = {};
+        (fidelizacion || []).forEach(f => { fidelizacionMap[f.restaurante_id] = f; });
 
         const activos = conexiones
           .filter(r => {
@@ -95,18 +109,22 @@ export function GeofencingProvider({ children }) {
             // Si no tenemos config, incluimos el restaurante por defecto
             return !cfg || cfg.activo !== false;
           })
-          .map(r => ({
-            restaurante_id: r.restaurante_id,
-            nombre:         configMap[r.restaurante_id]?.nombre ?? 'Restaurante',
-            latitud:        parseFloat(r.latitud),
-            longitud:       parseFloat(r.longitud),
-            radio_aviso:    r.radio_aviso    ?? 100,
-            puntos_llegada: r.puntos_llegada ?? 300,
-            puntos_geocerca: r.puntos_geocerca ?? 200,
-            meta_puntos:    r.meta_puntos    ?? 20,
-            mensaje_promo:  r.mensaje_promo  ?? '',
-            mensaje_incentivo_consumo: r.mensaje_incentivo_consumo ?? '',
-          }));
+          .map(r => {
+            const fid = fidelizacionMap[r.restaurante_id];
+            return {
+              restaurante_id: r.restaurante_id,
+              nombre:         configMap[r.restaurante_id]?.nombre ?? 'Restaurante',
+              latitud:        parseFloat(r.latitud),
+              longitud:       parseFloat(r.longitud),
+              radio_aviso:    r.radio_aviso    ?? 200,
+              puntos_llegada: fid?.puntos_pago_caja           ?? 300,
+              puntos_geocerca: fid?.puntos_geocerca_proximidad ?? 200,
+              meta_puntos:    fid?.monto_minimo_redencion     ?? 15000,
+              mensaje_promo:  r.mensaje_promo  ?? '',
+              mensaje_incentivo_consumo: fid?.mensaje_incentivo_consumo ?? '',
+            };
+          });
+
 
         setRestaurantes(activos);
       } catch (err) {
