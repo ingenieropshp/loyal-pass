@@ -155,6 +155,53 @@ export const buscarClienteEnRestaurante = async ({ authUserId, restauranteId }) 
  *
  * Devuelve la fila { id, nombre, saldo_puntos } recién vinculada o creada.
  */
+
+/**
+ * vincularDispositivo
+ * ────────────────────────────────────────────────────────────────────────
+ * Upsert best-effort en `dispositivos_clientes` (device_id, restaurante_id)
+ * → cliente_id. Esta tabla es lo que `geofence-webhook` usa para resolver
+ * A QUIÉN pertenece un evento de geocerca cuando solo tiene el deviceId
+ * (ver supabase/functions/geofence-webhook/index.ts) — sin esta fila, el
+ * webhook responde 404 "cliente_no_resuelto" y ningún bono de proximidad
+ * se acredita nunca, ni ahora ni en visitas futuras.
+ *
+ * BUG ENCONTRADO: esta tabla ya tenía sus políticas RLS de INSERT/UPDATE
+ * abiertas para anon/authenticated (`with_check: true`) — estaba lista
+ * para recibir este upsert — pero ningún lugar del código la llamaba. Por
+ * eso la tabla estaba vacía y el sistema de proximidad no funcionaba para
+ * NINGÚN cliente, más allá de los otros bugs corregidos en la migración
+ * 003_fix_fn_evento_geocerca_columna_puntos_obsoleta.sql.
+ *
+ * Se llama una sola vez, en el momento del registro (acá abajo), porque es
+ * cuando por primera vez se conocen a la vez deviceId + cliente_id +
+ * restaurante_id. "Fire and forget": si falla (deviceId no resuelto,
+ * columna nativa no disponible en navegador de escritorio, etc.), NO debe
+ * bloquear ni romper el registro del cliente — la relación cliente↔sede es
+ * lo importante; el vínculo de proximidad es una mejora, no un requisito.
+ */
+async function vincularDispositivo({ deviceId, restauranteId, clienteId }) {
+  if (!deviceId || !restauranteId || !clienteId) return;
+  try {
+    const { error } = await supabase
+      .from('dispositivos_clientes')
+      .upsert(
+        {
+          device_id:      deviceId,
+          restaurante_id: restauranteId,
+          cliente_id:     clienteId,
+          actualizado_en: new Date().toISOString(),
+        },
+        { onConflict: 'device_id,restaurante_id' } // PK compuesta de la tabla
+      );
+    if (error) {
+      console.warn('[vincularDispositivo] No se pudo vincular el dispositivo:', error.message);
+    }
+  } catch (err) {
+    console.warn('[vincularDispositivo] Error inesperado vinculando dispositivo:', err.message);
+  }
+}
+
 export const registrarClienteEnRestaurante = async ({
   user,            // objeto `user` de supabase.auth (ya autenticado globalmente)
   restauranteId,
@@ -163,7 +210,19 @@ export const registrarClienteEnRestaurante = async ({
   fechaNacimiento,
   cedula,
   referidoPor,
-  registradoEnGeocerca = false, // Regla 2: si es true, el trigger suma +200 pts extra (total 700)
+  // `registradoEnGeocerca` es SOLO un dato informativo que queda guardado en
+  // `clientes.registrado_en_geocerca` (útil para reportes: "¿se unió estando
+  // en el local o desde su casa?"). NO dispara ningún bono por sí solo — el
+  // trigger trg_bono_bienvenida (fn_bono_bienvenida en la base de datos)
+  // únicamente otorga los 500 pts de bienvenida y no lee esta columna ni
+  // sabe nada de geolocalización. El bono de proximidad (+200 si el
+  // registro ocurre dentro de la geocerca) lo dispara por separado
+  // SuccessCard (manejarRegistro.jsx) después de mostrar esta pantalla,
+  // reusando el mismo webhook seguro (enviarEventoGeocercaWebhook /
+  // fn_evento_geocerca) que usa el resto de la app — nunca insertando
+  // puntos directamente desde el navegador.
+  registradoEnGeocerca = false,
+  deviceId = null, // ver el upsert de dispositivos_clientes más abajo
 }) => {
   // a) ¿Ya vinculado a este restaurante? (evita duplicados por doble clic/carrera)
   const { data: yaExiste, error: errorExiste } = await supabase
@@ -173,7 +232,10 @@ export const registrarClienteEnRestaurante = async ({
     .eq('restaurante_id', restauranteId)
     .maybeSingle();
   if (errorExiste) throw errorExiste;
-  if (yaExiste) return yaExiste;
+  if (yaExiste) {
+    await vincularDispositivo({ deviceId, restauranteId, clienteId: yaExiste.id });
+    return yaExiste;
+  }
 
   // b) ¿Fila vieja del registro rápido, mismo teléfono, sin auth todavía?
   if (telefono) {
@@ -200,6 +262,7 @@ export const registrarClienteEnRestaurante = async ({
         .select('id, nombre, saldo_puntos')
         .single();
       if (errorUpdate) throw errorUpdate;
+      await vincularDispositivo({ deviceId, restauranteId, clienteId: vinculado.id });
       return vinculado;
     }
   }
@@ -238,6 +301,8 @@ export const registrarClienteEnRestaurante = async ({
     .select('id, nombre, saldo_puntos')
     .eq('id', nuevoCliente.id)
     .single();
+
+  await vincularDispositivo({ deviceId, restauranteId, clienteId: nuevoCliente.id });
 
   return clienteConBono || nuevoCliente;
 };

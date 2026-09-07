@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { registrarClienteEnRestaurante } from '../services/supabaseClient';
+import { getDeviceId } from '../utils/deviceId';
 
 /**
  * RegistrationForm — "Crea tu perfil", el paso 2 (registro LOCAL) del flujo
@@ -75,6 +76,15 @@ export const RegistrationForm = ({ onSuccess, user, restaurantId, referidoPor, e
       // usuario solo digite los 10 dígitos locales.
       const telefonoConIndicativo = `+57${formData.telefono.trim()}`;
 
+      // deviceId: se resuelve ANTES de registrar (no depende del resultado)
+      // porque registrarClienteEnRestaurante lo necesita para vincular este
+      // dispositivo al cliente recién creado en `dispositivos_clientes` —
+      // sin ese vínculo, el sistema de proximidad (geocercas nativas +
+      // geofence-webhook) nunca sabría a quién acreditarle puntos en este
+      // restaurante. getDeviceId() cachea internamente, así que llamarlo
+      // acá no repite trabajo si GeofencingProvider ya lo resolvió antes.
+      const deviceId = await getDeviceId();
+
       // Une la cuenta global (auth_id) ya autenticada con este restaurante
       // en particular. El usuario decide explícitamente unirse al hacer
       // clic en "Unirme al club" — nunca ocurre de forma automática.
@@ -86,9 +96,12 @@ export const RegistrationForm = ({ onSuccess, user, restaurantId, referidoPor, e
         fechaNacimiento: formData.fechaNacimiento,
         cedula:          formData.cedula.trim(),
         referidoPor,
-        // Regla 2: si el registro ocurre dentro de la geocerca, el trigger
-        // trg_bono_bienvenida suma también el bono de proximidad (total 700 pts).
+        // OJO: esto NO otorga el bono de proximidad — es solo un dato
+        // informativo (ver el comentario largo en supabaseClient.js). El
+        // bono real de +200 (si aplica) lo intenta SuccessCard por
+        // separado, con una lectura de GPS propia, después de esta pantalla.
         registradoEnGeocerca: esCerca,
+        deviceId,
       });
 
       onSuccess?.(cliente.id, cliente.nombre, cliente.saldo_puntos);

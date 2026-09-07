@@ -14,9 +14,14 @@
  *  - Con la app abierta/en background-pero-viva, el mismo evento también
  *    llega acá como listener JS ('geofenceTransition' → manejarTransicion).
  *    En ESE caso el POST al Edge Function lo hace este archivo directamente
- *    vía fetch, con `user_id` + las coordenadas del evento — el Edge
- *    Function es el único responsable de decidir y acreditar puntos; este
- *    hook ya no calcula ni inserta puntos por su cuenta.
+ *    vía fetch, con el mismo shape {identifier, enter/transition,
+ *    payload:{deviceId}} que lee geofence-webhook/index.ts. ANTES se
+ *    mandaba {user_id, restaurante_id, latitude, longitude} — ninguno de
+ *    esos campos coincide con lo que el webhook realmente lee, así que
+ *    siempre respondía 400 "payload_incompleto" antes de llegar al RPC
+ *    (bug corregido acá: ver enviarEventoGeocercaWebhook más abajo). El
+ *    Edge Function sigue siendo el único responsable de decidir y
+ *    acreditar puntos; este hook no calcula ni inserta puntos por su cuenta.
  *
  *  - addWatcher() de bajo consumo (distanceFilter alto) usado SOLO para
  *    mantener actualizada la lista `proximos` que consume la UI. Está
@@ -33,7 +38,9 @@ import { Capacitor } from '@capacitor/core';
 import { BackgroundGeolocation } from '@capgo/background-geolocation';
 import { LocalNotifications } from '@capacitor/local-notifications';
 import { getDeviceId } from '../utils/deviceId';
-import { supabase } from '../services/supabaseClient';
+// Ya no se importa `supabase` acá: su único uso (supabase.auth.getUser(),
+// para resolver un user_id que el webhook nunca leía) se quitó junto con
+// userIdRef — ver el fix de enviarEventoGeocercaWebhook más abajo.
 
 const CANAL_ID_GEOFENCE = 'geofence-alerts';
 
@@ -110,13 +117,30 @@ function marcarVisitaEnCurso(restauranteId, enCurso) {
 // quién y dónde, y es el Edge Function el que decide y acredita del lado
 // del servidor. "Fire and forget": si falla, no debe bloquear la UI — la
 // notificación local (mostrarNotifNativa) ya cumplió su función.
-async function enviarEventoGeocercaWebhook(userId, restauranteId, latitude, longitude) {
+//
+// EXPORTADA (antes era privada de este archivo) para que SuccessCard
+// (manejarRegistro.jsx) pueda reusar EXACTAMENTE este mismo POST justo
+// después de un registro en el local, en vez de reimplementar su propio
+// fetch con un shape de payload distinto (que es precisamente el bug que
+// tenía esta función antes de este fix).
+//
+// IMPORTANTE: el body tiene que calzar con la interfaz `PayloadGeofence`
+// que lee supabase/functions/geofence-webhook/index.ts:
+//   { identifier, transition?: 'enter'|'exit', enter?: boolean, payload?: { deviceId } }
+// Antes se mandaba { user_id, restaurante_id, latitude, longitude } — CERO
+// campos de esos existen en `PayloadGeofence`, así que el webhook siempre
+// devolvía 400 "payload_incompleto" sin llegar nunca a llamar a
+// fn_evento_geocerca. El webhook no usa latitude/longitude para nada (la
+// distancia ya la validó quien dispara el evento — el SO en el caso nativo,
+// o el llamador en el caso del check manual de SuccessCard), así que no
+// hace falta mandarlas.
+export async function enviarEventoGeocercaWebhook(deviceId, restauranteId, esEntrada) {
   if (!GEOFENCE_WEBHOOK_URL) {
     console.warn('[useGeofencing] Falta VITE_GEOFENCE_WEBHOOK_URL — no se envía el evento de geocerca');
     return;
   }
-  if (!userId) {
-    console.warn('[useGeofencing] No hay user_id resuelto (¿sesión no iniciada?) — se omite el POST de geocerca');
+  if (!deviceId) {
+    console.warn('[useGeofencing] No hay deviceId resuelto — se omite el POST de geocerca');
     return;
   }
   try {
@@ -128,10 +152,17 @@ async function enviarEventoGeocercaWebhook(userId, restauranteId, latitude, long
         apikey: SUPABASE_ANON_KEY,
       },
       body: JSON.stringify({
-        user_id: userId,
-        restaurante_id: restauranteId,
-        latitude,
-        longitude,
+        // `identifier` = restaurante_id: así es como geofence-webhook/index.ts
+        // nombra el campo (mismo nombre que usa el plugin nativo).
+        identifier: restauranteId,
+        // Se manda AMBAS formas (enter y transition) porque el Edge
+        // Function acepta cualquiera de las dos (usa `enter` si viene,
+        // si no cae a `transition`) — igual que hace el plugin nativo.
+        enter: esEntrada,
+        transition: esEntrada ? 'enter' : 'exit',
+        // El webhook resuelve cliente_id buscando (device_id, restaurante_id)
+        // en `dispositivos_clientes` — por eso viaja dentro de `payload`.
+        payload: { deviceId },
       }),
     });
   } catch (err) {
@@ -198,7 +229,12 @@ export function useGeofencing(restaurantes, deviceIdPrimed) {
   const comerciosActivosRef = useRef([]);
   const watcherIdRef = useRef(null);
   const transitionListenerRef = useRef(null);
-  const userIdRef = useRef(null);
+  // Guarda el deviceId ya resuelto para que manejarTransicion (que corre en
+  // otro callback, sin acceso directo a variables locales de iniciarRastreo)
+  // pueda usarlo al armar el body del webhook. Antes esto guardaba el
+  // user_id de supabase.auth.getUser() — ya no hace falta: el webhook
+  // resuelve el cliente por (deviceId, restaurante_id), no por user_id.
+  const deviceIdRef = useRef(null);
 
   useEffect(() => {
     restaurantesRef.current = restaurantes;
@@ -231,7 +267,10 @@ export function useGeofencing(restaurantes, deviceIdPrimed) {
   // mayúsculas/minúsculas ni de nombres de string que el plugin pueda ajustar.
   const manejarTransicion = useCallback(
     (evento) => {
-      const { identifier, transition, enter, latitude, longitude } = evento || {};
+      // latitude/longitude ya no se usan acá: el webhook no las necesita
+      // (ver enviarEventoGeocercaWebhook) — se quitaron del destructure para
+      // no dejar variables muertas.
+      const { identifier, transition, enter } = evento || {};
       if (!identifier) return;
       const comercio = comerciosActivosRef.current.find((c) => c.id === String(identifier));
       if (!comercio) return;
@@ -258,7 +297,7 @@ export function useGeofencing(restaurantes, deviceIdPrimed) {
         // que ocurra el 'exit' correspondiente.
         if (!yaNotificadaEnEstaVisita(identifier)) {
           marcarVisitaEnCurso(identifier, true);
-          enviarEventoGeocercaWebhook(userIdRef.current, identifier, latitude, longitude);
+          enviarEventoGeocercaWebhook(deviceIdRef.current, identifier, true);
         }
       }
 
@@ -304,14 +343,6 @@ export function useGeofencing(restaurantes, deviceIdPrimed) {
         );
       }
 
-      // user_id: quién reporta el evento al Edge Function. Se resuelve una
-      // sola vez por arranque de rastreo, igual que deviceId abajo.
-      const { data: userData, error: userError } = await supabase.auth.getUser();
-      if (userError) {
-        console.warn('[useGeofencing] No se pudo resolver el usuario autenticado:', userError.message);
-      }
-      userIdRef.current = userData?.user?.id ?? null;
-
       // deviceId: usamos el que el provider ya "primeó" en paralelo
       // (ver GeofencingProvider.jsx) para no volver a esperar a
       // Device.getId() acá. Si por algún motivo llega null/undefined
@@ -326,6 +357,10 @@ export function useGeofencing(restaurantes, deviceIdPrimed) {
         setEstado('sin_permiso');
         return;
       }
+      // Se guarda en el ref para que manejarTransicion (callback aparte,
+      // registrado como listener más abajo) pueda leerlo al reportar cada
+      // transición al webhook.
+      deviceIdRef.current = deviceId;
 
       // setupGeofencing dispara internamente el flujo de dos pasos
       // (foreground primero, luego el upgrade a background) tanto en
