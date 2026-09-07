@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { supabase }  from '../services/supabaseClient';
 
 /**
@@ -12,9 +12,25 @@ export const SuccessCard = ({
   nombreRestaurante,
   nombreCliente,
   clienteId,
-  puntosActuales = 2,
+  puntosActuales = 500,
   onClose,
 }) => {
+  // Monto mínimo de redención real de este restaurante, para el paso
+  // "¿Cómo funciona?" — se consulta aparte porque este componente no recibe
+  // config como prop desde App.jsx.
+  const [montoMinimoRedencion, setMontoMinimoRedencion] = useState(15000);
+  useEffect(() => {
+    if (!restauranteId) return;
+    supabase
+      .from('configuracion_restaurantes')
+      .select('monto_minimo_redencion')
+      .eq('restaurante_id', restauranteId)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data?.monto_minimo_redencion) setMontoMinimoRedencion(data.monto_minimo_redencion);
+      });
+  }, [restauranteId]);
+
   // Notificación de bienvenida (best-effort)
   useEffect(() => {
     const enviarNotificacion = async () => {
@@ -93,9 +109,9 @@ export const SuccessCard = ({
         <div style={styles.stepsCard}>
           <p style={styles.stepsTitle}>¿Cómo funciona?</p>
           {[
-            { icon: '📍', text: 'Visítanos y confirma tu llegada con GPS' },
-            { icon: '🔐', text: 'Ingresa el PIN del mesero para sumar puntos' },
-            { icon: '🎁', text: 'Con 20 puntos ganas un premio exclusivo' },
+            { icon: '📍', text: 'Visítanos y gana puntos solo por estar cerca' },
+            { icon: '🧾', text: 'Pide en la barra con tu número de cédula para sumar más' },
+            { icon: '🎁', text: `Al llegar a ${(montoMinimoRedencion ?? 15000).toLocaleString('es-CO')} pts, pagas con ellos como dinero real` },
           ].map(({ icon, text }) => (
             <div key={text} style={styles.stepRow}>
               <span style={styles.stepIcon}>{icon}</span>

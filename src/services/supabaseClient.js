@@ -203,7 +203,9 @@ export const registrarClienteEnRestaurante = async ({
     }
   }
 
-  // c) No existe ninguna fila todavía: se crea desde cero (+2 puntos de bienvenida).
+  // c) No existe ninguna fila todavía: se crea desde cero. El bono de
+  // bienvenida (configurable por restaurante) lo agrega automáticamente el
+  // trigger trg_bono_bienvenida — no se hardcodea aquí.
   const { data: nuevoCliente, error: errorInsert } = await supabase
     .from('clientes')
     .insert([{
@@ -213,7 +215,7 @@ export const registrarClienteEnRestaurante = async ({
       cedula:           cedula || null,
       email:            user.email,
       auth_user_id:     user.id,
-      puntos:           2,
+      puntos:           0,
       origen:           'Registro Web (Cuenta)',
       restaurante_id:   restauranteId,
       referidopor:      referidoPor || 'Directo (QR local)',
