@@ -26,13 +26,21 @@ function formatearFecha(iso) {
   return d.toLocaleDateString('es-CO', { day: 'numeric', month: 'short' });
 }
 
-export function HistorialPuntos({ clienteId, restauranteId }) {
+export function HistorialPuntos({ clienteId, restauranteId, mostrarVacio = false }) {
   const [historial, setHistorial] = useState([]);
   const [cargando,  setCargando]  = useState(true);
   const [expandido, setExpandido] = useState(false);
 
   useEffect(() => {
-    if (!clienteId) return;
+    if (!clienteId) {
+      // Sin cliente (aún no registrado en esta sede): no hay nada que
+      // consultar. Antes esto dejaba `cargando` en true para siempre —
+      // inofensivo cuando el componente se auto-oculta (mostrarVacio=false),
+      // pero visible como spinner eterno cuando se usa como pantalla propia.
+      setHistorial([]);
+      setCargando(false);
+      return;
+    }
 
     let query = supabase
       .from('historial_puntos')
@@ -49,7 +57,36 @@ export function HistorialPuntos({ clienteId, restauranteId }) {
     });
   }, [clienteId, restauranteId]);
 
-  if (cargando || historial.length === 0) return null;
+  // Uso embebido en el dashboard (mostrarVacio=false, comportamiento
+  // original): se oculta por completo mientras carga o si no hay
+  // movimientos, para no ocupar espacio innecesario.
+  if (!mostrarVacio && (cargando || historial.length === 0)) return null;
+
+  // Uso como pantalla propia (pestaña "Pagos"): siempre mostramos algo,
+  // aunque sea un mensaje de carga o de "todavía no hay movimientos".
+  if (mostrarVacio && cargando) {
+    return (
+      <p style={{ textAlign: 'center', fontSize: '0.85rem', color: 'var(--text)', opacity: 0.6, padding: '2rem 0' }}>
+        Cargando tu historial…
+      </p>
+    );
+  }
+
+  if (mostrarVacio && historial.length === 0) {
+    return (
+      <div style={{ textAlign: 'center', padding: '2.5rem 1rem' }}>
+        <p style={{ fontSize: '2rem', margin: '0 0 10px' }}>🧾</p>
+        <p style={{ margin: 0, fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-h)' }}>
+          Aún no tienes movimientos
+        </p>
+        <p style={{ margin: '4px 0 0', fontSize: '0.8rem', color: 'var(--text)', opacity: 0.6 }}>
+          {clienteId
+            ? 'Cuando ganes o uses puntos, los verás aquí.'
+            : 'Regístrate en el local para empezar a ganar puntos.'}
+        </p>
+      </div>
+    );
+  }
 
   const visibles = expandido ? historial : historial.slice(0, 5);
 

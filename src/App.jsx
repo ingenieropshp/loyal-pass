@@ -12,6 +12,7 @@ import { BrandLogo } from './components/BrandLogo';
 import { AppHeader } from './components/AppHeader';
 import { BottomNav } from './components/BottomNav';
 import { ComingSoonScreen } from './components/ComingSoonScreen';
+import { HistorialPuntos } from './components/HistorialPuntos';
 import { useLocation }      from './hooks/useLocation';
 import { supabase, buscarClienteEnRestaurante, registrarLlegada } from './services/supabaseClient';
 import './App.css';
@@ -531,7 +532,15 @@ function App() {
       <AppHeader nombreCliente={nombreCliente} onBellClick={() => {}} />
 
       <div className="main-wrapper main-wrapper--with-nav">
-        {tabActiva !== 'inicio' ? (
+        {tabActiva === 'pagos' ? (
+          <div style={{ width: '100%', paddingTop: '1.5rem' }}>
+            <HistorialPuntos
+              clienteId={clienteId}
+              restauranteId={sedeActual?.restaurante_id}
+              mostrarVacio
+            />
+          </div>
+        ) : tabActiva !== 'inicio' ? (
           <ComingSoonScreen tab={tabActiva} titulo={TITULOS_TAB[tabActiva]} />
         ) : (
           <>

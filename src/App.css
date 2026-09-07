@@ -151,6 +151,7 @@ main {
   width: 100%;
   background: var(--bg);
   border-bottom: 1px solid var(--border);
+  padding-top: env(safe-area-inset-top, 0px);
 }
 
 .app-header-inner {
@@ -261,6 +262,17 @@ main {
 .bottom-nav-item.active {
   color: var(--coral);
   opacity: 1;
+}
+
+@media (max-width: 340px) {
+  .bottom-nav-item {
+    font-size: 0.58rem;
+    padding: 8px 2px 7px;
+    letter-spacing: -0.01em;
+  }
+  .bottom-nav-item svg { width: 20px; height: 20px; }
+  .app-header-greeting { font-size: 0.95rem; }
+  .app-header-avatar, .app-header-bell { width: 36px; height: 36px; }
 }
 
 /* ===== COMING SOON (Recompensas / Pagos / Cuenta) ===== */

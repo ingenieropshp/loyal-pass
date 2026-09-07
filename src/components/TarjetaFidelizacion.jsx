@@ -108,7 +108,7 @@ export function TarjetaFidelizacion({
       </p>
 
       {/* Puntos grandes */}
-      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, marginBottom: 12 }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', gap: 6, marginBottom: 12 }}>
         <span style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: '2.6rem', lineHeight: 1 }}>
           {cargando ? '—' : puntosTotales.toLocaleString()}
         </span>
