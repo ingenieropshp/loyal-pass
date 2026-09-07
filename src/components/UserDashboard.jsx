@@ -25,7 +25,6 @@ export const UserDashboard = ({
   onLogout,          // ← NUEVO: función de App.jsx para cerrar sesión (supabase.auth.signOut)
 }) => {
   const [cliente,        setCliente]        = useState(null);
-  const [mostrarPerfil,  setMostrarPerfil]  = useState(false); // panel de "Perfil / Cerrar sesión"
   const [mostrarRedimir, setMostrarRedimir] = useState(false); // modal "Pagar con puntos"
   const [puntosVigentes, setPuntosVigentes] = useState(null); // saldo mostrado en la tarjeta
   const [cargandoPuntos, setCargandoPuntos] = useState(true);
@@ -188,49 +187,11 @@ export const UserDashboard = ({
         onPagarConPuntos={() => setMostrarRedimir(true)}
       />
 
-      {/* Header nombre + acceso a perfil/configuración */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', width: '100%' }}>
-        <div>
-          <div className="dash-welcome">Hola de nuevo,</div>
-          <div className="dash-name">{cliente.nombre?.toUpperCase()}</div>
-        </div>
-        {onLogout && (
-          <button
-            onClick={() => setMostrarPerfil(v => !v)}
-            aria-label="Perfil y configuración"
-            style={{
-              background: 'var(--bg-subtle)',
-              border: '1px solid var(--border)',
-              borderRadius: '50%',
-              width: 36, height: 36,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: '1rem', cursor: 'pointer', flexShrink: 0,
-            }}
-          >
-            ⚙️
-          </button>
-        )}
+      {/* Nombre del cliente */}
+      <div style={{ width: '100%' }}>
+        <div className="dash-welcome">Hola de nuevo,</div>
+        <div className="dash-name">{cliente.nombre?.toUpperCase()}</div>
       </div>
-
-      {/* Panel de perfil / configuración (solo "Cerrar sesión" por ahora) */}
-      {mostrarPerfil && onLogout && (
-        <div className="perfil-panel">
-          <span className="perfil-email" title={cliente.email || cliente.telefono}>
-            {cliente.email || cliente.telefono}
-          </span>
-          <button
-            className="btn-logout"
-            onClick={() => {
-              // Confirmación simple para evitar cierres de sesión accidentales.
-              if (window.confirm('¿Cerrar sesión? Podrás volver a ingresar con tu teléfono y contraseña.')) {
-                onLogout();
-              }
-            }}
-          >
-            Cerrar sesión
-          </button>
-        </div>
-      )}
 
       {/* Cupones activos (premio por visitas + canjes del catálogo) */}
       {cupones.map(cupon => {

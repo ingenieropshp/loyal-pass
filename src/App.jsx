@@ -13,6 +13,7 @@ import { AppHeader } from './components/AppHeader';
 import { BottomNav } from './components/BottomNav';
 import { ComingSoonScreen } from './components/ComingSoonScreen';
 import { HistorialPuntos } from './components/HistorialPuntos';
+import { CuentaScreen } from './components/CuentaScreen';
 import { useLocation }      from './hooks/useLocation';
 import { supabase, buscarClienteEnRestaurante, registrarLlegada } from './services/supabaseClient';
 import './App.css';
@@ -117,7 +118,6 @@ function App() {
   const [tabActiva, setTabActiva] = useState('inicio');
   const TITULOS_TAB = {
     recompensas: 'Recompensas',
-    cuenta:      'Cuenta',
   };
 
   // ── Cargar sesión guardada + escuchar cambios de autenticación ─────────
@@ -539,6 +539,12 @@ function App() {
               mostrarVacio
             />
           </div>
+        ) : tabActiva === 'cuenta' ? (
+          <CuentaScreen
+            clienteId={clienteId}
+            nombreCliente={nombreCliente}
+            onLogout={handleLogout}
+          />
         ) : tabActiva !== 'inicio' ? (
           <ComingSoonScreen tab={tabActiva} titulo={TITULOS_TAB[tabActiva]} />
         ) : (

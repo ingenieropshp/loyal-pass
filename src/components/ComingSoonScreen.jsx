@@ -6,7 +6,6 @@
 
 const ICONOS = {
   recompensas: '🎁',
-  cuenta:      '👤',
 };
 
 export function ComingSoonScreen({ tab, titulo }) {
