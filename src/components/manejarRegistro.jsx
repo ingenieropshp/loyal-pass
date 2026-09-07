@@ -60,24 +60,33 @@ export const SuccessCard = ({
 
         const { data: referidor } = await supabase
           .from('clientes')
-          .select('id, saldo_puntos, nombre')
+          .select('id, nombre')
           .eq('nombre', cliente.referidopor)
           .eq('restaurante_id', restauranteId)
           .maybeSingle();
 
         if (referidor) {
-          // ⚠️ Este UPDATE directo sobre `clientes.saldo_puntos` viola la
-          // regla nueva de "todo movimiento pasa por transacciones_puntos"
-          // (ver migracion_ledger_first.sql) — quedó así solo para no
-          // romper el flujo de referidos ahora mismo. Lo ideal es
-          // reemplazarlo por un INSERT en `transacciones_puntos` (haría
-          // falta agregar un tipo, ej. 'REFERIDO', al enum
-          // tipo_transaccion_enum) para que este +1 punto también quede
-          // en el historial y sea auditable.
-          await supabase
-            .from('clientes')
-            .update({ saldo_puntos: (referidor.saldo_puntos || 0) + 1 })
-            .eq('id', referidor.id);
+          // Antes esto hacía un UPDATE directo sobre `clientes.saldo_puntos`
+          // desde el navegador — auditable en el error, pero también un
+          // hueco de seguridad: cualquiera con la anon key podía llamar a
+          // este mismo endpoint para acreditarse puntos a sí mismo o a
+          // cualquier cliente_id, con cualquier monto. Insertar el registro
+          // directamente en `transacciones_puntos` desde aquí tendría el
+          // MISMO problema (solo que en otra tabla): el monto y el
+          // cliente_id seguirían viniendo del navegador.
+          //
+          // Por eso esto llama a `fn_registrar_referido`, una función de
+          // servidor (SECURITY DEFINER) que valida que el referidor
+          // exista en esta sede, evita acreditar el mismo referido dos
+          // veces, decide el monto de puntos ELLA MISMA (leyendo
+          // `configuracion_restaurantes.puntos_por_referido`, no un valor
+          // que mande el cliente) e inserta la fila 'REFERIDO' en el
+          // ledger. El trigger centralizado se encarga de sumar el saldo.
+          await supabase.rpc('fn_registrar_referido', {
+            p_referidor_id:        referidor.id,
+            p_restaurante_id:      restauranteId,
+            p_cliente_referido_id: clienteId,
+          });
         }
       } catch {}
     };
