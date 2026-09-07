@@ -195,7 +195,7 @@ function App() {
 
             setClienteId(cliente.id);
             setNombreCliente(cliente.nombre);
-            setPuntosCliente(cliente.saldo_puntos);
+            setPuntosCliente(cliente.puntos);
           } else {
             // Autenticado globalmente, pero aún NO inscrito en esta sede.
             delete registros[restauranteID];
@@ -204,7 +204,7 @@ function App() {
           }
         } else if (clienteId) {
           const { data: userDB, error: errorUser } = await supabase
-            .from('clientes').select('id, nombre, saldo_puntos')
+            .from('clientes').select('id, nombre, puntos')
             .eq('id', clienteId).maybeSingle();
 
           if (errorUser || !userDB) {
@@ -214,7 +214,7 @@ function App() {
             setClienteId(null);
           } else {
             setNombreCliente(userDB.nombre);
-            setPuntosCliente(userDB.saldo_puntos);
+            setPuntosCliente(userDB.puntos);
           }
         }
 

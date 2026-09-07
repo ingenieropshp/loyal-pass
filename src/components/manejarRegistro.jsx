@@ -60,33 +60,16 @@ export const SuccessCard = ({
 
         const { data: referidor } = await supabase
           .from('clientes')
-          .select('id, nombre')
+          .select('id, puntos, nombre')
           .eq('nombre', cliente.referidopor)
           .eq('restaurante_id', restauranteId)
           .maybeSingle();
 
         if (referidor) {
-          // Antes esto hacía un UPDATE directo sobre `clientes.saldo_puntos`
-          // desde el navegador — auditable en el error, pero también un
-          // hueco de seguridad: cualquiera con la anon key podía llamar a
-          // este mismo endpoint para acreditarse puntos a sí mismo o a
-          // cualquier cliente_id, con cualquier monto. Insertar el registro
-          // directamente en `transacciones_puntos` desde aquí tendría el
-          // MISMO problema (solo que en otra tabla): el monto y el
-          // cliente_id seguirían viniendo del navegador.
-          //
-          // Por eso esto llama a `fn_registrar_referido`, una función de
-          // servidor (SECURITY DEFINER) que valida que el referidor
-          // exista en esta sede, evita acreditar el mismo referido dos
-          // veces, decide el monto de puntos ELLA MISMA (leyendo
-          // `configuracion_restaurantes.puntos_por_referido`, no un valor
-          // que mande el cliente) e inserta la fila 'REFERIDO' en el
-          // ledger. El trigger centralizado se encarga de sumar el saldo.
-          await supabase.rpc('fn_registrar_referido', {
-            p_referidor_id:        referidor.id,
-            p_restaurante_id:      restauranteId,
-            p_cliente_referido_id: clienteId,
-          });
+          await supabase
+            .from('clientes')
+            .update({ puntos: (referidor.puntos || 0) + 1 })
+            .eq('id', referidor.id);
         }
       } catch {}
     };

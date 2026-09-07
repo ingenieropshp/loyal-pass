@@ -91,7 +91,7 @@ export const RegistrationForm = ({ onSuccess, user, restaurantId, referidoPor, e
         registradoEnGeocerca: esCerca,
       });
 
-      onSuccess?.(cliente.id, cliente.nombre, cliente.saldo_puntos);
+      onSuccess?.(cliente.id, cliente.nombre, cliente.puntos);
     } catch (error) {
       console.error('Error en registro:', error);
       if (error?.code === '23505') {
