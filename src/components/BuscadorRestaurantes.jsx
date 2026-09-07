@@ -45,14 +45,14 @@ export const BuscadorRestaurantes = ({ session, onLogout }) => {
         if (session?.user?.id) {
           const { data: clientesData, error: errCli } = await supabase
             .from('clientes')
-            .select('id, nombre, puntos, ciclos_completados, restaurante_id')
+            .select('id, nombre, saldo_puntos, ciclos_completados, restaurante_id')
             .eq('auth_user_id', session.user.id);
           if (errCli) throw errCli;
 
           const mapa = {};
           (clientesData || []).forEach(c => {
             mapa[c.restaurante_id] = {
-              puntos:  c.puntos || 0,
+              puntos:  c.saldo_puntos || 0,
               ciclos:  c.ciclos_completados || 0,
               nombre:  c.nombre,
             };

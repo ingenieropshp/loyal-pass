@@ -115,13 +115,13 @@ export const addData = async (table, data) => {
  * restaurante es una decisión aparte del usuario, tomada a través del
  * formulario "Crea tu perfil" (ver registrarClienteEnRestaurante).
  *
- * Devuelve la fila { id, nombre, puntos } si existe, o null si el usuario
+ * Devuelve la fila { id, nombre, saldo_puntos } si existe, o null si el usuario
  * todavía no se ha unido a ese restaurante.
  */
 export const buscarClienteEnRestaurante = async ({ authUserId, restauranteId }) => {
   const { data, error } = await supabase
     .from('clientes')
-    .select('id, nombre, puntos')
+    .select('id, nombre, saldo_puntos')
     .eq('auth_user_id', authUserId)
     .eq('restaurante_id', restauranteId)
     .maybeSingle();
@@ -153,7 +153,7 @@ export const buscarClienteEnRestaurante = async ({ authUserId, restauranteId }) 
  *   c) Si no existe ninguna → creamos una fila nueva con los 2 puntos de
  *      bienvenida.
  *
- * Devuelve la fila { id, nombre, puntos } recién vinculada o creada.
+ * Devuelve la fila { id, nombre, saldo_puntos } recién vinculada o creada.
  */
 export const registrarClienteEnRestaurante = async ({
   user,            // objeto `user` de supabase.auth (ya autenticado globalmente)
@@ -168,7 +168,7 @@ export const registrarClienteEnRestaurante = async ({
   // a) ¿Ya vinculado a este restaurante? (evita duplicados por doble clic/carrera)
   const { data: yaExiste, error: errorExiste } = await supabase
     .from('clientes')
-    .select('id, nombre, puntos')
+    .select('id, nombre, saldo_puntos')
     .eq('auth_user_id', user.id)
     .eq('restaurante_id', restauranteId)
     .maybeSingle();
@@ -179,7 +179,7 @@ export const registrarClienteEnRestaurante = async ({
   if (telefono) {
     const { data: existentePorTelefono, error: errorTel } = await supabase
       .from('clientes')
-      .select('id, nombre, puntos')
+      .select('id, nombre, saldo_puntos')
       .eq('telefono', telefono)
       .eq('restaurante_id', restauranteId)
       .is('auth_user_id', null)
@@ -197,7 +197,7 @@ export const registrarClienteEnRestaurante = async ({
           cedula:           cedula || null,
         })
         .eq('id', existentePorTelefono.id)
-        .select('id, nombre, puntos')
+        .select('id, nombre, saldo_puntos')
         .single();
       if (errorUpdate) throw errorUpdate;
       return vinculado;
@@ -216,26 +216,26 @@ export const registrarClienteEnRestaurante = async ({
       cedula:           cedula || null,
       email:            user.email,
       auth_user_id:     user.id,
-      puntos:           0,
+      saldo_puntos:     0,
       origen:           'Registro Web (Cuenta)',
       restaurante_id:   restauranteId,
       referidopor:      referidoPor || 'Directo (QR local)',
       fecha_registro:   new Date().toISOString(),
       registrado_en_geocerca: registradoEnGeocerca,
     }])
-    .select('id, nombre, puntos')
+    .select('id, nombre, saldo_puntos')
     .single();
   if (errorInsert) throw errorInsert;
 
   // IMPORTANTE: trg_bono_bienvenida corre DESPUÉS de este INSERT (es un
-  // trigger AFTER INSERT que hace su propio UPDATE sobre `clientes.puntos`).
-  // Por eso `nuevoCliente.puntos` de arriba SIEMPRE va a venir en 0 — el
+  // trigger AFTER INSERT en `transacciones_puntos` (trg_actualizar_saldo_cliente_por_transaccion) que hace su propio UPDATE sobre `clientes.saldo_puntos`).
+  // Por eso `nuevoCliente.saldo_puntos` de arriba SIEMPRE va a venir en 0 — el
   // RETURNING del INSERT original no ve cambios hechos por sentencias
   // posteriores del trigger, aunque corran en la misma transacción. Sin
   // este re-fetch, la pantalla de bienvenida mostraría "+0 puntos".
   const { data: clienteConBono } = await supabase
     .from('clientes')
-    .select('id, nombre, puntos')
+    .select('id, nombre, saldo_puntos')
     .eq('id', nuevoCliente.id)
     .single();
 
