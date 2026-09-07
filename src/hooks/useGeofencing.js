@@ -211,7 +211,7 @@ export function useGeofencing(restaurantes, deviceIdPrimed) {
           {
             id: idNumericoDesde(comercio.id),
             title: `¡Estás cerca de ${comercio.nombre}!`,
-            body: comercio.mensaje_promo || `Confirma tu llegada y gana +${comercio.puntos_llegada} puntos`,
+            body: comercio.mensaje_promo || `📍 Estás cerca de ${comercio.nombre}. ¡Pide en la barra con tu cédula para acumular tus puntos! 🍔`,
             channelId: CANAL_ID_GEOFENCE,
             smallIcon: 'ic_stat_icon',
             extra: { restauranteId: comercio.id },
@@ -248,7 +248,7 @@ export function useGeofencing(restaurantes, deviceIdPrimed) {
             id: `${identifier}-${Date.now()}`,
             restauranteId: identifier,
             nombre: comercio.nombre,
-            mensaje: comercio.mensaje_promo || `Confirma tu llegada y gana +${comercio.puntos_llegada} puntos`,
+            mensaje: comercio.mensaje_promo || `📍 Estás cerca de ${comercio.nombre}. ¡Pide en la barra con tu cédula para acumular tus puntos! 🍔`,
             timestamp: Date.now(),
           },
         ]);

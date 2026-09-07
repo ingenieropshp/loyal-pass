@@ -6,14 +6,14 @@
  * El tip "Asiste al local" combina los dos bonos reales de llegada:
  * `puntos_geocerca` (automático, al entrar al radio) + `puntos_llegada`
  * (fijo, al pagar en caja con cédula — ya no hay check-in manual GPS/PIN).
- * Ambos configurados por restaurante en `conexion`/`configuracion`.
+ * Ambos configurados por restaurante en `conexion`/`configuracion`. El
+ * mínimo de redención (`montoMinimoRedencion`) también es dinámico, desde
+ * `configuracion_restaurantes.monto_minimo_redencion` (default 15.000).
  * El tip "Por tus consumos" usa `mensajeIncentivoConsumo`, un texto libre
  * editable desde el panel admin (campo "Mensaje de incentivo por consumo").
  * Si el admin no lo configuró, se muestra un texto genérico sin cifras en
  * vez de inventar una tasa que no existe.
  */
-
-const MINIMO_REDENCION = 15000; // debe coincidir con el resto del sistema (backend de redención y de alertas de vencimiento)
 
 export function BarraProgresoPuntos({
   puntosActual = 0,
@@ -21,18 +21,19 @@ export function BarraProgresoPuntos({
   puntosLlegada = null,           // bono fijo al pagar en caja (useGeofencingContext)
   puntosGeocerca = null,          // bono automático al entrar al radio de geocerca
   mensajeIncentivoConsumo = null, // texto editable desde el panel admin (config.mensajeIncentivoConsumo)
+  montoMinimoRedencion = 15000,   // configuracion_restaurantes.monto_minimo_redencion (useGeofencingContext → meta_puntos)
   onPagarConPuntos,                // abre el modal de redención existente
 }) {
-  const metaAlcanzada = puntosActual >= MINIMO_REDENCION;
-  const proporcion    = Math.min(puntosActual / MINIMO_REDENCION, 1);
-  const faltantes     = Math.max(MINIMO_REDENCION - puntosActual, 0);
+  const metaAlcanzada = puntosActual >= montoMinimoRedencion;
+  const proporcion    = Math.min(puntosActual / montoMinimoRedencion, 1);
+  const faltantes     = Math.max(montoMinimoRedencion - puntosActual, 0);
 
   return (
     <div className={`mis-puntos-card ${metaAlcanzada ? 'meta-alcanzada' : 'acumulando'}`}>
       <div className="mis-puntos-header">
         <span className="mis-puntos-title">Mis Puntos</span>
         <span className="mis-puntos-fraccion">
-          {cargando ? '—' : puntosActual.toLocaleString('es-CO')} / {MINIMO_REDENCION.toLocaleString('es-CO')} pts
+          {cargando ? '—' : puntosActual.toLocaleString('es-CO')} / {montoMinimoRedencion.toLocaleString('es-CO')} pts
         </span>
       </div>
 

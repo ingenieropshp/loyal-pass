@@ -89,7 +89,7 @@ export function GeofencingProvider({ children }) {
         // Query 3: algoritmo de fidelización (tabla configuracion_restaurantes)
         const { data: fidelizacion, error: err3 } = await supabase
           .from('configuracion_restaurantes')
-          .select('restaurante_id, puntos_geocerca_proximidad, puntos_pago_caja, monto_minimo_redencion, mensaje_incentivo_consumo')
+          .select('restaurante_id, puntos_geocerca_proximidad, puntos_pago_caja, monto_minimo_redencion, mensaje_incentivo_consumo, mensaje_push_geocerca')
           .in('restaurante_id', ids);
 
         if (err3) {
@@ -120,7 +120,7 @@ export function GeofencingProvider({ children }) {
               puntos_llegada: fid?.puntos_pago_caja           ?? 300,
               puntos_geocerca: fid?.puntos_geocerca_proximidad ?? 200,
               meta_puntos:    fid?.monto_minimo_redencion     ?? 15000,
-              mensaje_promo:  r.mensaje_promo  ?? '',
+              mensaje_promo:  fid?.mensaje_push_geocerca || r.mensaje_promo || '',
               mensaje_incentivo_consumo: fid?.mensaje_incentivo_consumo ?? '',
             };
           });

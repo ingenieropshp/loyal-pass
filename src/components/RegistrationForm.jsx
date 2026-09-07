@@ -20,7 +20,7 @@ import { registrarClienteEnRestaurante } from '../services/supabaseClient';
  *   onSuccess(id, nombre, puntos) → App.jsx lo usa para pasar a la
  *                                   pantalla de bienvenida con los puntos.
  */
-export const RegistrationForm = ({ onSuccess, user, restaurantId, referidoPor }) => {
+export const RegistrationForm = ({ onSuccess, user, restaurantId, referidoPor, esCerca = false }) => {
   const [formData, setFormData] = useState({ nombre: '', telefono: '', fechaNacimiento: '', cedula: '' });
   const [loading,  setLoading]  = useState(false);
   const [mostrarTerminos, setMostrarTerminos] = useState(false);
@@ -86,6 +86,9 @@ export const RegistrationForm = ({ onSuccess, user, restaurantId, referidoPor })
         fechaNacimiento: formData.fechaNacimiento,
         cedula:          formData.cedula.trim(),
         referidoPor,
+        // Regla 2: si el registro ocurre dentro de la geocerca, el trigger
+        // trg_bono_bienvenida suma también el bono de proximidad (total 700 pts).
+        registradoEnGeocerca: esCerca,
       });
 
       onSuccess?.(cliente.id, cliente.nombre, cliente.puntos);
@@ -111,7 +114,7 @@ export const RegistrationForm = ({ onSuccess, user, restaurantId, referidoPor })
         {/* Header */}
         <div style={styles.header}>
           <h2 style={styles.title}>Crea tu perfil</h2>
-          <p style={styles.subtitle}>Regístrate hoy y gana tus primeros 2 puntos</p>
+          <p style={styles.subtitle}>Regístrate hoy y gana tus primeros puntos de bienvenida</p>
         </div>
 
         {/* Fields */}
@@ -179,9 +182,9 @@ export const RegistrationForm = ({ onSuccess, user, restaurantId, referidoPor })
               Términos y Condiciones
             </h3>
             <div style={{ fontSize: '0.85rem', color: 'var(--text)', lineHeight: 1.7 }}>
-              <p><strong>1. Puntos:</strong> Recibirás 2 puntos por cada visita confirmada mediante PIN del personal.</p>
-              <p style={{ marginTop: 10 }}><strong>2. Premios:</strong> Al completar 20 puntos se activa un cupón. Preséntalo al mesero.</p>
-              <p style={{ marginTop: 10 }}><strong>3. Vencimiento:</strong> Los puntos vencen a los 30 días sin nueva visita.</p>
+              <p><strong>1. Puntos:</strong> Ganas puntos automáticamente por registrarte, por estar cerca del local (geocerca) y por cada consumo — sin necesidad de que el mesero confirme nada con un PIN.</p>
+              <p style={{ marginTop: 10 }}><strong>2. Redención:</strong> Al alcanzar el mínimo de puntos configurado por el restaurante, puedes pagar tu cuenta con ellos (1 punto = $1 COP), total o parcialmente.</p>
+              <p style={{ marginTop: 10 }}><strong>3. Vencimiento:</strong> Los puntos se consolidan al cierre de cada mes y vencen según la política de vigencia del restaurante (por defecto, 90 días desde su consolidación).</p>
               <p style={{ marginTop: 10 }}><strong>4. Datos:</strong> Autorizas el uso de tus datos solo para este programa de fidelización.</p>
             </div>
             <button type="button" onClick={() => setMostrarTerminos(false)} style={styles.btnJoin}>

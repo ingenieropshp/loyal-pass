@@ -163,6 +163,7 @@ export const registrarClienteEnRestaurante = async ({
   fechaNacimiento,
   cedula,
   referidoPor,
+  registradoEnGeocerca = false, // Regla 2: si es true, el trigger suma +200 pts extra (total 700)
 }) => {
   // a) ¿Ya vinculado a este restaurante? (evita duplicados por doble clic/carrera)
   const { data: yaExiste, error: errorExiste } = await supabase
@@ -220,12 +221,25 @@ export const registrarClienteEnRestaurante = async ({
       restaurante_id:   restauranteId,
       referidopor:      referidoPor || 'Directo (QR local)',
       fecha_registro:   new Date().toISOString(),
+      registrado_en_geocerca: registradoEnGeocerca,
     }])
     .select('id, nombre, puntos')
     .single();
   if (errorInsert) throw errorInsert;
 
-  return nuevoCliente;
+  // IMPORTANTE: trg_bono_bienvenida corre DESPUÉS de este INSERT (es un
+  // trigger AFTER INSERT que hace su propio UPDATE sobre `clientes.puntos`).
+  // Por eso `nuevoCliente.puntos` de arriba SIEMPRE va a venir en 0 — el
+  // RETURNING del INSERT original no ve cambios hechos por sentencias
+  // posteriores del trigger, aunque corran en la misma transacción. Sin
+  // este re-fetch, la pantalla de bienvenida mostraría "+0 puntos".
+  const { data: clienteConBono } = await supabase
+    .from('clientes')
+    .select('id, nombre, puntos')
+    .eq('id', nuevoCliente.id)
+    .single();
+
+  return clienteConBono || nuevoCliente;
 };
 
 /**

@@ -613,6 +613,7 @@ function App() {
             user={session.user}
             restaurantId={sedeActual.restaurante_id}
             referidoPor={referidoPor}
+            esCerca={esCerca}
             onSuccess={handleSuccess}
           />
         )}

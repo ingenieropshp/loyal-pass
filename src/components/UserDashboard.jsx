@@ -164,6 +164,7 @@ export const UserDashboard = ({
   const puntosLlegada = restauranteActual?.puntos_llegada ?? null;
   const puntosGeocerca = restauranteActual?.puntos_geocerca ?? null;
   const mensajeIncentivoConsumo = restauranteActual?.mensaje_incentivo_consumo || null;
+  const montoMinimoRedencion = restauranteActual?.meta_puntos ?? 15000;
 
   // ── Render ─────────────────────────────────────────────────────────────
   return (
@@ -184,6 +185,7 @@ export const UserDashboard = ({
         puntosLlegada={puntosLlegada}
         puntosGeocerca={puntosGeocerca}
         mensajeIncentivoConsumo={mensajeIncentivoConsumo}
+        montoMinimoRedencion={montoMinimoRedencion}
         onPagarConPuntos={() => setMostrarRedimir(true)}
       />
 
@@ -278,6 +280,7 @@ export const UserDashboard = ({
         onClose={() => setMostrarRedimir(false)}
         cliente={cliente}
         restauranteId={restauranteId}
+        montoMinimoRedencion={montoMinimoRedencion}
         onRedencionExitosa={(nuevoSaldo) => {
           setCliente(prev => (prev ? { ...prev, puntos: nuevoSaldo } : prev));
           setPuntosVigentes(nuevoSaldo);

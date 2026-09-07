@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { supabase } from '../services/supabaseClient';
 
-const MIN_PUNTOS = 15000;
+
 
 /**
  * RedimirPuntosModal
@@ -23,6 +23,7 @@ export default function RedimirPuntosModal({
   onClose,
   cliente,        // objeto cliente ya cargado: { id, restaurante_id, nombre, puntos, cedula }
   restauranteId,  // sede activa — necesario para no tocar otras sedes del mismo cliente
+  montoMinimoRedencion = 15000, // configuracion_restaurantes.monto_minimo_redencion
   onRedencionExitosa,
 }) {
   const [montoARedimir, setMontoARedimir] = useState('');
@@ -44,12 +45,12 @@ export default function RedimirPuntosModal({
       setError('Por favor, ingresa un número válido.');
       return;
     }
-    if (saldoActual < MIN_PUNTOS) {
-      setError(`Tu saldo actual (${saldoActual.toLocaleString()} pts) es inferior al mínimo de ${MIN_PUNTOS.toLocaleString()} pts requerido para redimir.`);
+    if (saldoActual < montoMinimoRedencion) {
+      setError(`Tu saldo actual (${saldoActual.toLocaleString()} pts) es inferior al mínimo de ${montoMinimoRedencion.toLocaleString()} pts requerido para redimir.`);
       return;
     }
-    if (puntosRedimir < MIN_PUNTOS) {
-      setError(`El monto mínimo por transacción es de ${MIN_PUNTOS.toLocaleString()} puntos ($${MIN_PUNTOS.toLocaleString()} COP).`);
+    if (puntosRedimir < montoMinimoRedencion) {
+      setError(`El monto mínimo por transacción es de ${montoMinimoRedencion.toLocaleString()} puntos ($${montoMinimoRedencion.toLocaleString()} COP).`);
       return;
     }
     if (puntosRedimir > saldoActual) {
@@ -72,7 +73,7 @@ export default function RedimirPuntosModal({
       if (!data?.ok) {
         const legibles = {
           cliente_no_encontrado:         'No se pudo identificar tu cuenta en esta sede.',
-          monto_bajo_minimo_redimible:   `El monto mínimo por transacción es de ${MIN_PUNTOS.toLocaleString()} puntos.`,
+          monto_bajo_minimo_redimible:   `El monto mínimo por transacción es de ${montoMinimoRedencion.toLocaleString()} puntos.`,
           saldo_bajo_minimo_activacion:  'Tu saldo actual es inferior al mínimo requerido para redimir.',
           saldo_insuficiente:            'No tienes suficientes puntos para ese monto.',
         };
@@ -142,7 +143,7 @@ export default function RedimirPuntosModal({
                 type="number"
                 value={montoARedimir}
                 onChange={(e) => setMontoARedimir(e.target.value)}
-                placeholder={`Mínimo ${MIN_PUNTOS.toLocaleString()}`}
+                placeholder={`Mínimo ${montoMinimoRedencion.toLocaleString()}`}
                 disabled={loading}
                 style={{
                   width: '100%', padding: '12px 14px', borderRadius: 12,
@@ -150,7 +151,7 @@ export default function RedimirPuntosModal({
                 }}
               />
               <p style={{ margin: '0 0 14px', fontSize: '0.72rem', color: 'var(--text)', opacity: 0.55 }}>
-                Regla: mínimo {MIN_PUNTOS.toLocaleString()} puntos por transacción.
+                Regla: mínimo {montoMinimoRedencion.toLocaleString()} puntos por transacción.
               </p>
 
               {error && (
