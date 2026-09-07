@@ -33,7 +33,7 @@ export default function RedimirPuntosModal({
 
   if (!isOpen) return null;
 
-  const saldoActual = cliente?.puntos || 0;
+  const saldoActual = cliente?.saldo_puntos || 0;
 
   const handleRedencion = async (e) => {
     e.preventDefault();

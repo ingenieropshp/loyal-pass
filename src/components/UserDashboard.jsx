@@ -51,11 +51,11 @@ export const UserDashboard = ({
 
     const { data: filaCliente, error: errorCliente } = await supabase
       .from('clientes')
-      .select('puntos')
+      .select('saldo_puntos')
       .or(`id.eq.${clienteId},auth_user_id.eq.${clienteId}`)
       .maybeSingle();
 
-    let saldo = !errorCliente ? (filaCliente?.puntos ?? 0) : 0;
+    let saldo = !errorCliente ? (filaCliente?.saldo_puntos ?? 0) : 0;
 
     let query = supabase
       .from('saldo_usuario')
@@ -154,7 +154,7 @@ export const UserDashboard = ({
 
   if (!cliente) return <div className="loading-container">Sincronizando…</div>;
 
-  const puntos     = puntosVigentes ?? cliente.puntos ?? 0;
+  const puntos     = puntosVigentes ?? cliente.saldo_puntos ?? 0;
 
   const restauranteActual = restaurantesGeofencing.find(
     r => r.restaurante_id === restauranteId
@@ -236,7 +236,7 @@ export const UserDashboard = ({
         restauranteId={restauranteId}
         montoMinimoRedencion={montoMinimoRedencion}
         onRedencionExitosa={(nuevoSaldo) => {
-          setCliente(prev => (prev ? { ...prev, puntos: nuevoSaldo } : prev));
+          setCliente(prev => (prev ? { ...prev, saldo_puntos: nuevoSaldo } : prev));
           setPuntosVigentes(nuevoSaldo);
         }}
       />

@@ -60,15 +60,23 @@ export const SuccessCard = ({
 
         const { data: referidor } = await supabase
           .from('clientes')
-          .select('id, puntos, nombre')
+          .select('id, saldo_puntos, nombre')
           .eq('nombre', cliente.referidopor)
           .eq('restaurante_id', restauranteId)
           .maybeSingle();
 
         if (referidor) {
+          // ⚠️ Este UPDATE directo sobre `clientes.saldo_puntos` viola la
+          // regla nueva de "todo movimiento pasa por transacciones_puntos"
+          // (ver migracion_ledger_first.sql) — quedó así solo para no
+          // romper el flujo de referidos ahora mismo. Lo ideal es
+          // reemplazarlo por un INSERT en `transacciones_puntos` (haría
+          // falta agregar un tipo, ej. 'REFERIDO', al enum
+          // tipo_transaccion_enum) para que este +1 punto también quede
+          // en el historial y sea auditable.
           await supabase
             .from('clientes')
-            .update({ puntos: (referidor.puntos || 0) + 1 })
+            .update({ saldo_puntos: (referidor.saldo_puntos || 0) + 1 })
             .eq('id', referidor.id);
         }
       } catch {}
