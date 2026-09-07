@@ -18,7 +18,6 @@ const CONFIG_TIPO = {
   PROXIMIDAD:  { icono: '📍', bg: 'var(--green-light)', etiqueta: 'Bono por cercanía' },
   COMPRA_CAJA: { icono: '💳', bg: 'var(--green-light)', etiqueta: 'Bono por compra en caja' },
   CONSUMO:     { icono: '🧾', bg: 'var(--green-light)', etiqueta: 'Puntos por consumo' },
-  REFERIDO:    { icono: '🤝', bg: 'var(--green-light)', etiqueta: 'Bono por referido' },
   REDENCION:   { icono: '💸', bg: 'var(--coral-light)', etiqueta: 'Redención de puntos' },
   VENCIMIENTO: { icono: '⏰', bg: 'var(--coral-light)', etiqueta: 'Puntos vencidos' },
 };
