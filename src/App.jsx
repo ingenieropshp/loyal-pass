@@ -117,7 +117,6 @@ function App() {
   const [tabActiva, setTabActiva] = useState('inicio');
   const TITULOS_TAB = {
     recompensas: 'Recompensas',
-    pagos:       'Pagos',
     cuenta:      'Cuenta',
   };
 
@@ -532,7 +531,7 @@ function App() {
       <AppHeader nombreCliente={nombreCliente} onBellClick={() => {}} />
 
       <div className="main-wrapper main-wrapper--with-nav">
-        {tabActiva === 'pagos' ? (
+        {tabActiva === 'historial' ? (
           <div style={{ width: '100%', paddingTop: '1.5rem' }}>
             <HistorialPuntos
               clienteId={clienteId}
@@ -598,7 +597,7 @@ function App() {
                       alignItems: 'center',
                       gap: '2px',
                       padding: '6px 10px',
-                      background: esCerca ? 'rgba(255,255,255,0.35)' : 'rgba(220,80,50,0.12)',
+                      background: esCerca ? 'var(--green)' : 'rgba(220,80,50,0.12)',
                       borderRadius: '10px',
                       textDecoration: 'none',
                       color: esCerca ? 'white' : 'var(--coral, #e04a2f)',

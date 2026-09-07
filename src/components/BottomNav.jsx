@@ -21,11 +21,11 @@ const ICONOS = {
       <path d="M12 9.5h2.8a2 2 0 1 0 0-4c-1.8 0-2.8 2-2.8 4Z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />
     </svg>
   ),
-  pagos: (
+  historial: (
     <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <rect x="3.5" y="6" width="17" height="12.5" rx="1.8" stroke="currentColor" strokeWidth="1.7" />
-      <path d="M3.5 10h17" stroke="currentColor" strokeWidth="1.7" />
-      <path d="M6.5 14.3h4" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+      <circle cx="12" cy="12.5" r="7.5" stroke="currentColor" strokeWidth="1.7" />
+      <path d="M12 8.2v4.5l3 2" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M9 3.5h6" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
     </svg>
   ),
   cuenta: (
@@ -39,7 +39,7 @@ const ICONOS = {
 const TABS = [
   { id: 'inicio',      label: 'Inicio' },
   { id: 'recompensas', label: 'Recompensas' },
-  { id: 'pagos',       label: 'Pagos' },
+  { id: 'historial',   label: 'Historial' },
   { id: 'cuenta',      label: 'Cuenta' },
 ];
 

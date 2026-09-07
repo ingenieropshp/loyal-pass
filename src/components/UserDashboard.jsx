@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../services/supabaseClient';
 import { TarjetaFidelizacion }              from './TarjetaFidelizacion';
-import { HistorialPuntos }                  from './HistorialPuntos';
 import RedimirPuntosModal                   from './RedimirPuntosModal';
 import { BarraProgresoPuntos }              from './BarraProgresoPuntos';
 import { useGeofencingContext }             from './GeofencingProvider';
@@ -267,12 +266,6 @@ export const UserDashboard = ({
           📢 Invitar a un amigo
         </button>
       </div>
-
-      {/* ── Historial de puntos ────────────────────────────────────────── */}
-      <HistorialPuntos
-        clienteId={clienteId}
-        restauranteId={restauranteId}
-      />
 
       {/* ── Modal: redención de monto libre para pagar en caja ─────────── */}
       <RedimirPuntosModal

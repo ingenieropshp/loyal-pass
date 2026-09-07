@@ -6,7 +6,6 @@
 
 const ICONOS = {
   recompensas: '🎁',
-  pagos:       '💳',
   cuenta:      '👤',
 };
 
