@@ -9,6 +9,9 @@ import { SuccessCard }      from './components/manejarRegistro';
 import { UserDashboard }    from './components/UserDashboard';
 import { BuscadorRestaurantes } from './components/BuscadorRestaurantes';
 import { BrandLogo } from './components/BrandLogo';
+import { AppHeader } from './components/AppHeader';
+import { BottomNav } from './components/BottomNav';
+import { ComingSoonScreen } from './components/ComingSoonScreen';
 import { useLocation }      from './hooks/useLocation';
 import { supabase, buscarClienteEnRestaurante, registrarLlegada } from './services/supabaseClient';
 import './App.css';
@@ -107,6 +110,15 @@ function App() {
   const [sedeActual,       setSedeActual]        = useState(null);
   const [sedeNoEncontrada, setSedeNoEncontrada] = useState(false);
   const [llegadaConfirmada, setLlegadaConfirmada] = useState(false); // banner "✓ Llegada registrada"
+
+  // Pestaña activa de la barra inferior. Solo "inicio" tiene contenido real
+  // por ahora; las demás muestran ComingSoonScreen (ver diseño solicitado).
+  const [tabActiva, setTabActiva] = useState('inicio');
+  const TITULOS_TAB = {
+    recompensas: 'Recompensas',
+    pagos:       'Pagos',
+    cuenta:      'Cuenta',
+  };
 
   // ── Cargar sesión guardada + escuchar cambios de autenticación ─────────
   // getSession() lee el token que quedó en localStorage de una visita
@@ -515,114 +527,126 @@ function App() {
 
   // ── App principal ─────────────────────────────────────────────────────────
   return (
-    <div className="main-wrapper">
-      <button onClick={volverAlBuscador} style={{
-        alignSelf: 'flex-start', margin: '0.75rem 0 0 0.5rem',
-        background: 'transparent', border: 'none', color: 'var(--text)',
-        fontSize: '0.85rem', cursor: 'pointer', opacity: 0.7,
-      }}>← Buscador</button>
+    <>
+      <AppHeader nombreCliente={nombreCliente} onBellClick={() => {}} />
 
-      <header style={{ textAlign: 'center', margin: '0.5rem 0 1.5rem', width: '100%' }}>
-        <h1 className="brand-title">
-          {config.nombreSede}<span className="dot">.</span>
-        </h1>
-        {referidoPor && (
-          <p style={{ marginTop: '0.4rem', fontSize: '0.8rem', opacity: 0.6 }}>
-            Invitado por <strong>{referidoPor}</strong>
-          </p>
-        )}
-      </header>
-
-      {geoError && <div className="error-alert">⚠️ {geoError}</div>}
-
-      {llegadaConfirmada && (
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: '8px',
-          background: 'rgba(60,160,90,0.12)', color: '#2f8a52',
-          border: '1px solid rgba(60,160,90,0.3)', borderRadius: 'var(--r-md)',
-          padding: '10px 14px', margin: '0 0 0.75rem', fontSize: '0.85rem', fontWeight: 600,
-        }}>
-          ✓ Llegada registrada — ¡bienvenido de nuevo!
-        </div>
-      )}
-
-      {typeof distancia === 'number' ? (
-        <div className={`proximity-badge${esCerca ? ' near' : ''}`}>
-          <div className="prox-icon-wrap">
-            {esCerca ? '✓' : '📍'}
-          </div>
-          <div style={{ flex: 1 }}>
-            <div className="prox-label">{esCerca ? '¡Bienvenido! Estás a' : 'Estás a'}</div>
-            <div className="prox-distance">
-              {distancia >= 1000
-                ? `${(distancia / 1000).toFixed(1)} km`
-                : `${Math.round(distancia)} metros`}
-            </div>
-          </div>
-          {sedeActual?.latitud && sedeActual?.longitud && (
-            <a
-              href={`https://www.google.com/maps/dir/?api=1&destination=${sedeActual.latitud},${sedeActual.longitud}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                gap: '2px',
-                padding: '6px 10px',
-                background: esCerca ? 'rgba(255,255,255,0.35)' : 'rgba(220,80,50,0.12)',
-                borderRadius: '10px',
-                textDecoration: 'none',
-                color: esCerca ? 'white' : 'var(--coral, #e04a2f)',
-                fontSize: '0.65rem',
-                fontWeight: 700,
-                letterSpacing: '0.03em',
-                whiteSpace: 'nowrap',
-                flexShrink: 0,
-              }}
-              title="Abrir en Google Maps"
-            >
-              <span style={{ fontSize: '1.3rem', lineHeight: 1 }}>🗺️</span>
-              Cómo llegar
-            </a>
-          )}
-        </div>
-      ) : (
-        <div className="gps-loader">
-          <div className="loader-spinner" style={{ width: 16, height: 16, borderWidth: 2 }} />
-          Buscando ubicación…
-        </div>
-      )}
-
-      <main className="animate-fade-in">
-        {clienteId ? (
-          <UserDashboard
-            restauranteId={sedeActual.restaurante_id}
-            clienteId={clienteId}
-            distancia={distancia}
-            esCerca={esCerca}
-            nombreRestaurante={config.nombreSede}
-            onLogout={handleLogout}
-          />
+      <div className="main-wrapper main-wrapper--with-nav">
+        {tabActiva !== 'inicio' ? (
+          <ComingSoonScreen tab={tabActiva} titulo={TITULOS_TAB[tabActiva]} />
         ) : (
-          // Ya hay sesión global (session.user existe — de lo contrario no
-          // llegaríamos aquí, ver el GATE más arriba), pero todavía no hay
-          // una fila en `clientes` para ESTA sede: "Crea tu perfil" es la
-          // inscripción local, explícita y controlada por el usuario.
-          <RegistrationForm
-            user={session.user}
-            restaurantId={sedeActual.restaurante_id}
-            referidoPor={referidoPor}
-            esCerca={esCerca}
-            onSuccess={handleSuccess}
-          />
-        )}
-      </main>
+          <>
+            <button onClick={volverAlBuscador} style={{
+              alignSelf: 'flex-start', margin: '0.75rem 0 0 0.5rem',
+              background: 'transparent', border: 'none', color: 'var(--text)',
+              fontSize: '0.85rem', cursor: 'pointer', opacity: 0.7,
+            }}>← Buscador</button>
 
-      <footer className="version-footer">
-        LoyalPass v2.9 · {config.nombreSede}
-      </footer>
-    </div>
+            <header style={{ textAlign: 'center', margin: '0.5rem 0 1.5rem', width: '100%' }}>
+              <h1 className="brand-title">
+                {config.nombreSede}<span className="dot">.</span>
+              </h1>
+              {referidoPor && (
+                <p style={{ marginTop: '0.4rem', fontSize: '0.8rem', opacity: 0.6 }}>
+                  Invitado por <strong>{referidoPor}</strong>
+                </p>
+              )}
+            </header>
+
+            {geoError && <div className="error-alert">⚠️ {geoError}</div>}
+
+            {llegadaConfirmada && (
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: '8px',
+                background: 'rgba(60,160,90,0.12)', color: '#2f8a52',
+                border: '1px solid rgba(60,160,90,0.3)', borderRadius: 'var(--r-md)',
+                padding: '10px 14px', margin: '0 0 0.75rem', fontSize: '0.85rem', fontWeight: 600,
+              }}>
+                ✓ Llegada registrada — ¡bienvenido de nuevo!
+              </div>
+            )}
+
+            {typeof distancia === 'number' ? (
+              <div className={`proximity-badge${esCerca ? ' near' : ''}`}>
+                <div className="prox-icon-wrap">
+                  {esCerca ? '✓' : '📍'}
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div className="prox-label">{esCerca ? '¡Bienvenido! Estás a' : 'Estás a'}</div>
+                  <div className="prox-distance">
+                    {distancia >= 1000
+                      ? `${(distancia / 1000).toFixed(1)} km`
+                      : `${Math.round(distancia)} metros`}
+                  </div>
+                </div>
+                {sedeActual?.latitud && sedeActual?.longitud && (
+                  <a
+                    href={`https://www.google.com/maps/dir/?api=1&destination=${sedeActual.latitud},${sedeActual.longitud}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      gap: '2px',
+                      padding: '6px 10px',
+                      background: esCerca ? 'rgba(255,255,255,0.35)' : 'rgba(220,80,50,0.12)',
+                      borderRadius: '10px',
+                      textDecoration: 'none',
+                      color: esCerca ? 'white' : 'var(--coral, #e04a2f)',
+                      fontSize: '0.65rem',
+                      fontWeight: 700,
+                      letterSpacing: '0.03em',
+                      whiteSpace: 'nowrap',
+                      flexShrink: 0,
+                    }}
+                    title="Abrir en Google Maps"
+                  >
+                    <span style={{ fontSize: '1.3rem', lineHeight: 1 }}>🗺️</span>
+                    Cómo llegar
+                  </a>
+                )}
+              </div>
+            ) : (
+              <div className="gps-loader">
+                <div className="loader-spinner" style={{ width: 16, height: 16, borderWidth: 2 }} />
+                Buscando ubicación…
+              </div>
+            )}
+
+            <main className="animate-fade-in">
+              {clienteId ? (
+                <UserDashboard
+                  restauranteId={sedeActual.restaurante_id}
+                  clienteId={clienteId}
+                  distancia={distancia}
+                  esCerca={esCerca}
+                  nombreRestaurante={config.nombreSede}
+                  onLogout={handleLogout}
+                />
+              ) : (
+                // Ya hay sesión global (session.user existe — de lo contrario no
+                // llegaríamos aquí, ver el GATE más arriba), pero todavía no hay
+                // una fila en `clientes` para ESTA sede: "Crea tu perfil" es la
+                // inscripción local, explícita y controlada por el usuario.
+                <RegistrationForm
+                  user={session.user}
+                  restaurantId={sedeActual.restaurante_id}
+                  referidoPor={referidoPor}
+                  esCerca={esCerca}
+                  onSuccess={handleSuccess}
+                />
+              )}
+            </main>
+
+            <footer className="version-footer">
+              LoyalPass v2.9 · {config.nombreSede}
+            </footer>
+          </>
+        )}
+      </div>
+
+      <BottomNav active={tabActiva} onChange={setTabActiva} />
+    </>
   );
 }
 
