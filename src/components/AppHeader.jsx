@@ -3,9 +3,11 @@
  * Header superior fijo de la app: avatar con iniciales del cliente,
  * saludo con su primer nombre, y campana de notificaciones.
  *
- * Solo visual por ahora: el botón de notificaciones no abre nada todavía
- * (no hay bandeja de notificaciones implementada); el puntito rojo es un
- * indicador estático de "hay novedades", no un contador real.
+ * Centro de Notificaciones: la campana ahora abre el drawer real
+ * (CentroNotificaciones.jsx, montado en App.jsx) y el puntito dorado es un
+ * contador real de no leídas —viene del hook useNotificaciones, instanciado
+ * una sola vez en App.jsx y pasado aquí por la prop `unreadCount`— en vez
+ * del indicador estático que había antes de implementar la bandeja.
  */
 
 function obtenerIniciales(nombreCompleto) {
@@ -24,9 +26,10 @@ function obtenerPrimerNombre(nombreCompleto) {
   return primero.charAt(0).toUpperCase() + primero.slice(1);
 }
 
-export function AppHeader({ nombreCliente, onBellClick }) {
+export function AppHeader({ nombreCliente, unreadCount = 0, onBellClick }) {
   const iniciales   = obtenerIniciales(nombreCliente);
   const primerNombre = obtenerPrimerNombre(nombreCliente);
+  const hayNoLeidas = unreadCount > 0;
 
   return (
     <header className="app-header">
@@ -43,7 +46,7 @@ export function AppHeader({ nombreCliente, onBellClick }) {
           type="button"
           className="app-header-bell"
           onClick={onBellClick}
-          aria-label="Notificaciones"
+          aria-label={hayNoLeidas ? `Notificaciones (${unreadCount} sin leer)` : 'Notificaciones'}
         >
           <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path
@@ -61,7 +64,7 @@ export function AppHeader({ nombreCliente, onBellClick }) {
               strokeLinejoin="round"
             />
           </svg>
-          <span className="app-header-bell-dot" />
+          {hayNoLeidas && <span className="app-header-bell-dot" />}
         </button>
       </div>
     </header>

@@ -10,6 +10,8 @@ import { UserDashboard }    from './components/UserDashboard';
 import { BuscadorRestaurantes } from './components/BuscadorRestaurantes';
 import { BrandLogo } from './components/BrandLogo';
 import { AppHeader } from './components/AppHeader';
+import { CentroNotificaciones } from './components/CentroNotificaciones';
+import { useNotificaciones } from './hooks/useNotificaciones';
 import { BottomNav } from './components/BottomNav';
 import { ComingSoonScreen } from './components/ComingSoonScreen';
 import { HistorialPuntos } from './components/HistorialPuntos';
@@ -117,6 +119,7 @@ function App() {
   // Pestaña activa de la barra inferior. Solo "inicio" tiene contenido real
   // por ahora; las demás muestran ComingSoonScreen (ver diseño solicitado).
   const [tabActiva, setTabActiva] = useState('inicio');
+  const [centroNotifAbierto, setCentroNotifAbierto] = useState(false); // drawer de la campana
   const TITULOS_TAB = {
     recompensas: 'Recompensas',
   };
@@ -378,6 +381,13 @@ function App() {
     sedeActual?.longitud ?? null
   );
 
+  // Centro de Notificaciones — se instancia una sola vez acá arriba (antes
+  // de cualquier `return` condicional de más abajo, como exigen las reglas
+  // de hooks) para que AppHeader (el puntito dorado) y el drawer
+  // CentroNotificaciones compartan la MISMA consulta/suscripción a
+  // `historial_notificaciones`, sin duplicarla.
+  const notif = useNotificaciones(clienteId);
+
   const config = useMemo(() => ({
     radioAviso:   sedeActual?.radio_aviso ? Number(sedeActual.radio_aviso) : 800,
     mensaje:      sedeActual?.mensaje_promo || 'CORTESÍA DISPONIBLE',
@@ -551,7 +561,20 @@ function App() {
   // ── App principal ─────────────────────────────────────────────────────────
   return (
     <>
-      <AppHeader nombreCliente={nombreCliente} onBellClick={() => {}} />
+      <AppHeader
+        nombreCliente={nombreCliente}
+        unreadCount={notif.unreadCount}
+        onBellClick={() => setCentroNotifAbierto(true)}
+      />
+
+      <CentroNotificaciones
+        open={centroNotifAbierto}
+        onClose={() => setCentroNotifAbierto(false)}
+        notificaciones={notif.notificaciones}
+        cargando={notif.cargando}
+        unreadCount={notif.unreadCount}
+        onMarcarTodasLeidas={notif.marcarTodasLeidas}
+      />
 
       <div className="main-wrapper main-wrapper--with-nav">
         {tabActiva === 'historial' ? (

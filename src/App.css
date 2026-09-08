@@ -202,7 +202,9 @@ main {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--text-h);
+  /* Bronce cepillado — distinto del dorado de marca, para que la campana no
+     compita visualmente con el punto de "no leídas" (ese sí es dorado). */
+  color: #C9A25B;
   padding: 0;
 }
 
@@ -215,8 +217,15 @@ main {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: var(--coral);
+  background: var(--gold-gradient);
   border: 1.5px solid var(--bg);
+  box-shadow: 0 0 6px 1px rgba(212,175,55,0.65);
+  animation: bellDotPulse 2s ease-in-out infinite;
+}
+
+@keyframes bellDotPulse {
+  0%, 100% { box-shadow: 0 0 4px 1px rgba(212,175,55,0.5); }
+  50%      { box-shadow: 0 0 9px 3px rgba(212,175,55,0.85); }
 }
 
 /* ===== BOTTOM NAV ===== */
@@ -312,4 +321,230 @@ main {
   opacity: 0.7;
   max-width: 280px;
   line-height: 1.5;
+}
+
+/* ===== CENTRO DE NOTIFICACIONES (drawer de la campana) ===== */
+.centro-notif-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(0,0,0,0.55);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.28s ease, visibility 0.28s ease;
+}
+
+.centro-notif-overlay.is-open {
+  opacity: 1;
+  visibility: visible;
+}
+
+.centro-notif-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(400px, 100vw);
+  max-width: 100vw;
+  display: flex;
+  flex-direction: column;
+  background: var(--luxury-dark);
+  border-left: 1px solid var(--border-mid);
+  box-shadow: -10px 0 40px rgba(0,0,0,0.55);
+  transform: translateX(100%);
+  transition: transform 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.centro-notif-drawer.is-open { transform: translateX(0); }
+
+.centro-notif-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 18px 14px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.centro-notif-header h3 {
+  font-size: 1.05rem;
+  font-weight: 800;
+}
+
+.centro-notif-cerrar {
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--bg-subtle);
+  color: var(--text-h);
+  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.centro-notif-diagnostico {
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+  background: var(--charcoal-mate);
+  flex-shrink: 0;
+}
+
+.centro-notif-diag-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.78rem;
+  padding: 5px 0;
+  flex-wrap: wrap;
+}
+
+.centro-notif-diag-item > span:first-child {
+  flex: 1;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.centro-notif-diag-estado {
+  font-weight: 800;
+  font-size: 0.66rem;
+  letter-spacing: 0.05em;
+  padding: 2px 8px;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+.centro-notif-diag-estado.activa      { color: #2FBF71; background: rgba(47,191,113,0.14); }
+.centro-notif-diag-estado.inactiva    { color: #E86A5A; background: rgba(232,106,90,0.14); }
+.centro-notif-diag-estado.desconocida { color: var(--text); opacity: 0.55; background: transparent; }
+
+.centro-notif-diag-btn {
+  border: 1px solid var(--border-mid);
+  background: transparent;
+  color: var(--luxury-gold);
+  font-size: 0.66rem;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+.centro-notif-diag-nota {
+  margin: 6px 0 0;
+  font-size: 0.68rem;
+  color: var(--text);
+  opacity: 0.65;
+  line-height: 1.45;
+}
+
+.centro-notif-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 10px;
+}
+
+.centro-notif-vacio {
+  text-align: center;
+  font-size: 0.85rem;
+  color: var(--text);
+  opacity: 0.55;
+  padding: 3rem 1rem;
+}
+
+.centro-notif-item {
+  position: relative;
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 12px 10px;
+  border-radius: var(--r-md);
+  margin-bottom: 4px;
+}
+
+.centro-notif-item.no-leida {
+  background: rgba(212,175,55,0.07);
+}
+
+.centro-notif-icon {
+  font-size: 1.15rem;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.centro-notif-texto { flex: 1; min-width: 0; }
+
+.centro-notif-titulo {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text-h);
+  margin-bottom: 2px;
+  line-height: 1.35;
+}
+
+.centro-notif-contenido {
+  font-size: 0.78rem;
+  color: var(--text);
+  opacity: 0.8;
+  line-height: 1.4;
+  margin-bottom: 4px;
+}
+
+.centro-notif-fecha {
+  font-size: 0.64rem;
+  color: var(--text);
+  opacity: 0.5;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.centro-notif-dot {
+  position: absolute;
+  top: 14px;
+  right: 10px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--gold-gradient);
+  box-shadow: 0 0 5px rgba(212,175,55,0.7);
+}
+
+.centro-notif-footer {
+  padding: 12px 18px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.centro-notif-btn-marcar {
+  width: 100%;
+  padding: 12px;
+  border-radius: var(--r-md);
+  border: none;
+  background: var(--gold-gradient);
+  color: #1A1204;
+  font-weight: 800;
+  font-size: 0.85rem;
+  box-shadow: var(--shadow-btn);
+  transition: opacity 0.2s;
+}
+
+.centro-notif-btn-marcar:disabled {
+  opacity: 0.35;
+  box-shadow: none;
+  cursor: default;
+}
+
+@media (max-width: 380px) {
+  .centro-notif-drawer { width: 100vw; }
 }
