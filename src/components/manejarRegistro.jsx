@@ -19,6 +19,59 @@ function distanciaMetros(lat1, lon1, lat2, lon2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+// Traduce el código numérico de GeolocationPositionError a algo legible en
+// consola. Los tres únicos valores que define la spec son 1/2/3 — cualquier
+// otra cosa (o un error que no es de geolocalización) cae en el mensaje tal
+// cual venga.
+function describirErrorGeolocalizacion(err) {
+  const codigos = { 1: 'PERMISSION_DENIED', 2: 'POSITION_UNAVAILABLE', 3: 'TIMEOUT' };
+  if (err && typeof err.code === 'number') {
+    return `${codigos[err.code] || `código ${err.code}`}: ${err.message || '(sin mensaje)'}`;
+  }
+  return err?.message || String(err);
+}
+
+/**
+ * obtenerPosicionActual
+ * ────────────────────────────────────────────────────────────────────────
+ * Lectura de GPS de UNA sola vez, con el mismo esquema en cascada que ya
+ * usa useLocation.js (hook, para el badge "estás cerca" del formulario):
+ *   1) Alta precisión primero (GPS real, típico en celular).
+ *   2) Si falla — código 2 POSITION_UNAVAILABLE es el caso típico de un
+ *      escritorio sin chip GPS, pero también cubre timeout/permiso — se
+ *      reintenta UNA vez con baja precisión (enableHighAccuracy: false),
+ *      que en Chrome de escritorio resuelve por IP/Wi-Fi en vez de fallar
+ *      directamente. `maximumAge` alto en este segundo intento porque una
+ *      posición de red de hace un minuto sigue sirviendo para un radio de
+ *      cientos/miles de metros.
+ * Si el segundo intento también falla, se relanza el error ORIGINAL (el de
+ * alta precisión) para que el log de arriba diga la causa real, no la del
+ * fallback.
+ */
+async function obtenerPosicionActual() {
+  try {
+    return await new Promise((resolve, reject) => {
+      navigator.geolocation.getCurrentPosition(resolve, reject, {
+        enableHighAccuracy: true,
+        timeout: 8000,
+        maximumAge: 0,
+      });
+    });
+  } catch (errAltaPrecision) {
+    try {
+      return await new Promise((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: false,
+          timeout: 8000,
+          maximumAge: 60000,
+        });
+      });
+    } catch {
+      throw errAltaPrecision; // se conserva el error original para el log
+    }
+  }
+}
+
 /**
  * SuccessCard — pantalla mostrada justo después de un registro exitoso.
  * Props:
@@ -111,15 +164,10 @@ export const SuccessCard = ({
 
         // 2) Posición actual del usuario, UNA sola vez (no un watch: ya
         // estamos parados en la pantalla de bienvenida, no hace falta
-        // seguir monitoreando). Timeout corto para no dejar la promesa
-        // colgada si el usuario nunca responde al permiso.
-        const posicion = await new Promise((resolve, reject) => {
-          navigator.geolocation.getCurrentPosition(resolve, reject, {
-            enableHighAccuracy: true,
-            timeout: 8000,
-            maximumAge: 0,
-          });
-        });
+        // seguir monitoreando). obtenerPosicionActual() ya intenta alta
+        // precisión primero y cae a baja precisión (red/Wi-Fi) si la
+        // primera falla — ver su comentario arriba.
+        const posicion = await obtenerPosicionActual();
 
         const distancia = distanciaMetros(
           posicion.coords.latitude,
@@ -135,10 +183,18 @@ export const SuccessCard = ({
         const deviceId = await getDeviceId();
         await enviarEventoGeocercaWebhook(deviceId, restauranteId, true);
       } catch (err) {
-        // Cualquier falla acá (GPS denegado, timeout, error de red) es
-        // silenciosa a propósito: el cliente ya se registró bien, esto es
-        // solo un intento best-effort de darle el bono un poco más rápido.
-        console.warn('[SuccessCard] No se pudo intentar el bono de proximidad:', err?.message || err);
+        // Sigue siendo NO bloqueante a propósito (el cliente ya se registró
+        // bien, esto es solo un intento best-effort de darle el bono un
+        // poco más rápido) — pero ya no se silencia el detalle: antes esto
+        // solo decía "No se pudo..." sin decir POR QUÉ, y fue exactamente
+        // lo que hizo imposible diagnosticar por qué a "Piere Steven" no le
+        // llegaron los +200 (resultó ser un PC de escritorio sin GPS real,
+        // ver el fix de obtenerPosicionActual arriba). console.error (no
+        // warn) para que resalte en consola sin tener que filtrar logs.
+        console.error(
+          '[SuccessCard] No se pudo dar el bono de proximidad —',
+          describirErrorGeolocalizacion(err)
+        );
       }
     };
     intentarBonoProximidad();
