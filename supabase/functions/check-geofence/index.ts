@@ -1,9 +1,25 @@
 /**
- * check-geofence/index.ts — v3.0
- * Fixes:
+ * check-geofence/index.ts — v4.0
+ * Fixes v3.0:
  *  - metricas_proximidad: columnas correctas (distancia_metros, exito)
  *  - SUPABASE_SECRET_KEYS: compatible con nuevo y legacy formato
  *  - mensaje_geofence: leído de conexion para el payload del push
+ *
+ * Cambios v4.0 (notificaciones personalizadas):
+ *  - Ahora acepta un `clienteId` opcional en el body. Cuando llega:
+ *      1. Se guarda en el INSERT de `metricas_proximidad` (columna
+ *         cliente_id ya existe en la tabla — antes esta función la dejaba
+ *         siempre en null).
+ *      2. En vez de mandar el push genérico "¡Estás cerca de X!" a TODAS
+ *         las suscripciones de esa sede (comportamiento viejo), se busca
+ *         SOLO la(s) suscripción(es) de push_subscriptions de ESE cliente
+ *         (por cliente_id) y se hace un JOIN con `clientes` para leer su
+ *         nombre y saludarlo: "Hola {nombre}, estás cerca de {sede}!".
+ *  - Si NO llega clienteId (compatibilidad con llamadores viejos) o si el
+ *    cliente resuelto no tiene ninguna suscripción guardada todavía, se
+ *    mantiene el comportamiento anterior tal cual: si viene `subscription`
+ *    en el body se usa esa directamente; si no, se hace broadcast genérico
+ *    (sin nombre) a todas las suscripciones de la sede.
  */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -66,7 +82,7 @@ Deno.serve(async (req: Request) => {
     }
 
     const body = await req.json();
-    const { restauranteId, latitudUsuario, longitudUsuario, subscription } = body;
+    const { restauranteId, latitudUsuario, longitudUsuario, subscription, clienteId } = body;
 
     if (!restauranteId || latitudUsuario == null || longitudUsuario == null) {
       return json({ error: 'Faltan parámetros: restauranteId, latitudUsuario, longitudUsuario' }, 400);
@@ -104,14 +120,17 @@ Deno.serve(async (req: Request) => {
     const radio = parseInt(conexion.radio_aviso) || 200;
     const distM = haversineMetros(uLat, uLon, rLat, rLon);
 
-    // ── FIX Bug 1: columnas correctas de metricas_proximidad ─────────────────
+    // ── FIX Bug 1 (v3.0): columnas correctas de metricas_proximidad ──────────
     // La tabla tiene: distancia_metros (no distancia), exito (no es_exito_total)
     // No tiene: restaurante, dentro_del_rango_800
+    // v4.0: si llega clienteId, se guarda también — antes quedaba siempre en
+    // null aunque la columna ya existía en la tabla.
     supabase.from('metricas_proximidad').insert([{
       restaurante_id:   restauranteId,
       distancia_metros: Math.round(distM),        // ← columna correcta
       exito:            distM <= radio,            // ← columna correcta
       origen:           'geofence_push',
+      cliente_id:       clienteId ?? null,          // ← NUEVO
     }]).then(({ error }) => {
       if (error) console.warn('[check-geofence] Error métrica:', error.message);
     });
@@ -127,8 +146,26 @@ Deno.serve(async (req: Request) => {
       || conexion.mensaje_promo?.trim()
       || 'Confirma tu llegada';
 
+    // ── v4.0: si conocemos al cliente, buscamos su nombre para saludarlo ─────
+    // (JOIN manual: push_subscriptions.cliente_id → clientes.id). Si no hay
+    // clienteId, o el cliente no tiene fila en `clientes` con ese id, se cae
+    // al mensaje genérico de siempre (sin nombre).
+    let nombreCliente: string | null = null;
+    if (clienteId) {
+      const { data: cliente } = await supabase
+        .from('clientes')
+        .select('nombre')
+        .eq('id', clienteId)
+        .maybeSingle();
+      nombreCliente = cliente?.nombre ?? null;
+    }
+
+    const tituloPush = nombreCliente
+      ? `¡Hola ${nombreCliente}! Estás cerca de ${config.nombre} 📍`
+      : `¡Estás cerca de ${config.nombre}! 📍`;
+
     const pushPayload = JSON.stringify({
-      titulo:           `¡Estás cerca de ${config.nombre}! 📍`,
+      titulo:           tituloPush,
       cuerpo:           `${mensajeCuerpo} y gana +${puntosLlegada} puntos.`,
       icono:            '/icons/icon-192.png',
       urlMenu:          `${appUrl}/?r=${restauranteId}`,
@@ -142,8 +179,27 @@ Deno.serve(async (req: Request) => {
     const subsToNotify: object[] = [];
 
     if (subscription) {
+      // Llamador que ya trae su propia suscripción en mano (ej. una prueba
+      // manual, o un flujo que la resolvió del lado del cliente): se respeta
+      // tal cual, sin tocar nada más.
       subsToNotify.push(subscription);
+    } else if (clienteId) {
+      // ── v4.0: targeting por cliente, no broadcast a toda la sede ──────────
+      // Solo se notifica a ESTE cliente (JOIN implícito vía cliente_id, que
+      // ya guardamos en push_subscriptions al registrar la suscripción — ver
+      // save-push-subscription/index.ts). Si el cliente no tiene ninguna
+      // suscripción guardada, subsToNotify queda vacío y no se envía nada —
+      // correcto: no hay a quién avisarle.
+      const { data: subsCliente, error: errSubsCliente } = await supabase
+        .from('push_subscriptions')
+        .select('subscription_json')
+        .eq('cliente_id', clienteId);
+
+      if (errSubsCliente) console.warn('[check-geofence] Error suscripción del cliente:', errSubsCliente.message);
+      if (subsCliente?.length) subsToNotify.push(...subsCliente.map((s: any) => s.subscription_json));
     } else {
+      // Comportamiento legacy (sin clienteId): broadcast genérico a todas
+      // las suscripciones de la sede, sin personalizar por nombre.
       const { data: subs, error: errorSubs } = await supabase
         .from('push_subscriptions')
         .select('subscription_json')
@@ -174,7 +230,7 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    return json({ ok: true, distanciaMetros: Math.round(distM), enviados, fallidos: fallidos.length });
+    return json({ ok: true, distanciaMetros: Math.round(distM), enviados, fallidos: fallidos.length, personalizado: !!nombreCliente });
 
   } catch (err: any) {
     console.error('[check-geofence] Error inesperado:', err?.message ?? err);

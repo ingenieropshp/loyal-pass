@@ -52,9 +52,13 @@ export const BuscadorRestaurantes = ({ session, onLogout }) => {
           const mapa = {};
           (clientesData || []).forEach(c => {
             mapa[c.restaurante_id] = {
-              puntos:  c.saldo_puntos || 0,
-              ciclos:  c.ciclos_completados || 0,
-              nombre:  c.nombre,
+              puntos:    c.saldo_puntos || 0,
+              ciclos:    c.ciclos_completados || 0,
+              nombre:    c.nombre,
+              // id real de la fila de `clientes` para esta sede — necesario
+              // para asociar la suscripción push (push_subscriptions) con
+              // este cliente y poder personalizar sus notificaciones.
+              clienteId: c.id,
             };
           });
           setDatosPorSede(mapa);
@@ -83,6 +87,14 @@ export const BuscadorRestaurantes = ({ session, onLogout }) => {
   );
 
   const misRestaurantes = restaurantes.filter(r => !!datosPorSede[r.id]);
+
+  // Igual que `misRestaurantes`, pero con el clienteId de cada sede
+  // "pegado" — lo necesita SelectorNotificaciones para poder mandar el
+  // cliente_id al guardar la suscripción push (ver push_subscriptions).
+  const misRestaurantesConCliente = misRestaurantes.map(r => ({
+    ...r,
+    clienteId: datosPorSede[r.id]?.clienteId ?? null,
+  }));
 
   return (
     <div style={styles.wrapper}>
@@ -124,7 +136,7 @@ export const BuscadorRestaurantes = ({ session, onLogout }) => {
           <p style={styles.sectionTitle}>Mis restaurantes</p>
 
           {/* Selector de notificaciones por restaurante */}
-          <SelectorNotificaciones restaurantes={misRestaurantes} />
+          <SelectorNotificaciones restaurantes={misRestaurantesConCliente} />
 
           <div style={styles.list}>
             {misRestaurantes.map(r => {

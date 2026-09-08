@@ -1,9 +1,21 @@
 /**
- * save-push-subscription/index.ts — v2.0
- * Fixes:
+ * save-push-subscription/index.ts — v2.1
+ * Fixes v2.0:
  *  - onConflict usa solo 'endpoint' (la tabla no tiene unique en endpoint+restaurante_id)
  *  - SUPABASE_SECRET_KEYS: compatible nuevo y legacy formato
  *  - restaurante_id: se guarda pero no forma parte del constraint de unicidad
+ *
+ * Cambios v2.1:
+ *  - Ahora también recibe `clienteId` (id de la fila `clientes` del usuario
+ *    autenticado) y lo persiste en `push_subscriptions.cliente_id`. Esto es
+ *    lo que le permite a las funciones que ENVÍAN push (ej. check-geofence)
+ *    hacer un JOIN con `clientes` y saludar por nombre en el mensaje
+ *    ("Hola Piere, tienes puntos por vencer") en vez de un texto genérico.
+ *  - clienteId es opcional: si no llega (ej. el usuario concedió el permiso
+ *    de notificaciones antes de registrarse en cualquier sede), se guarda
+ *    null — la próxima vez que SelectorNotificaciones.jsx se monte con un
+ *    clienteId resuelto, esta misma función vuelve a correr (upsert) y lo
+ *    completa.
  */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -35,7 +47,7 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const { subscription, restauranteId } = await req.json();
+    const { subscription, restauranteId, clienteId } = await req.json();
 
     if (!subscription?.endpoint) {
       return new Response(JSON.stringify({ error: 'Suscripción inválida' }), {
@@ -50,7 +62,8 @@ Deno.serve(async (req: Request) => {
     );
 
     // ── FIX Bug 3: onConflict solo en 'endpoint' (único índice único real) ────
-    // restaurante_id se guarda como dato pero no forma parte del constraint
+    // restaurante_id y cliente_id se guardan como dato pero no forman parte
+    // del constraint de unicidad.
     const { error } = await supabase
       .from('push_subscriptions')
       .upsert(
@@ -58,6 +71,7 @@ Deno.serve(async (req: Request) => {
           endpoint:          subscription.endpoint,
           subscription_json: subscription,
           restaurante_id:    restauranteId ?? null,  // guardarlo como dato
+          cliente_id:        clienteId ?? null,       // ← NUEVO: para personalizar el mensaje
           updated_at:        new Date().toISOString(),
         },
         { onConflict: 'endpoint' }  // ← solo endpoint, que es el unique real

@@ -22,6 +22,20 @@
  * flujo; este es un guardado adicional/directo pedido explícitamente.
  * Si terminan duplicando función, lo natural a futuro es unificar en uno
  * solo (recomiendo el de aquí, por ser upsert idempotente).
+ *
+ * ── CAMBIOS (notificaciones personalizadas) ────────────────────────────────
+ * `push_subscriptions` ahora tiene una columna `cliente_id` (FK a
+ * `clientes.id`) para que el backend pueda saludar por nombre al enviar un
+ * push (ej. "Hola Piere, tienes puntos por vencer"). `restaurantes` (prop)
+ * ahora puede traer, por cada sede, un `clienteId` ya resuelto (ver
+ * BuscadorRestaurantes.jsx) — se toma el primero disponible y se manda en
+ * el body de `save-push-subscription`. Si el usuario todavía no tiene
+ * ninguna fila en `clientes` (por ejemplo, concedió el permiso antes de
+ * registrarse en cualquier sede), clienteId queda en null: la suscripción
+ * se guarda igual, solo que sin poder personalizarse todavía — se
+ * actualiza sola la próxima vez que este componente se monte ya con
+ * clientes cargados (ver el useEffect de abajo, que reintenta en cada
+ * cambio de `restaurantes`).
  * ────────────────────────────────────────────────────────────────────────────
  */
 
@@ -68,7 +82,7 @@ function setNotifPref(restauranteId, activo) {
 // app (ej. al iniciar sesión). No se llama a nada de esto en WebView nativo:
 // esNativo se resuelve más abajo vía useIOS/Capacitor.isNativePlatform, y en
 // ese entorno 'Notification'/'serviceWorker' + pushManager ni siquiera están.
-export async function suscribirPushYGuardar(restauranteId = null) {
+export async function suscribirPushYGuardar(restauranteId = null, clienteId = null) {
   if (typeof window === 'undefined') return { ok: false, motivo: 'sin_window' };
   if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
     return { ok: false, motivo: 'no_soportado' };
@@ -102,6 +116,10 @@ export async function suscribirPushYGuardar(restauranteId = null) {
       body: JSON.stringify({
         subscription: sub.toJSON(),
         restauranteId,
+        // id de la fila `clientes` del usuario autenticado — permite al
+        // backend saludarlo por nombre en notificaciones futuras (ver
+        // save-push-subscription/index.ts y check-geofence/index.ts).
+        clienteId,
       }),
     });
 
@@ -126,6 +144,15 @@ export function SelectorNotificaciones({ restaurantes = [] }) {
   const [visible,  setVisible]  = useState(false);
   const { isIOS, isStandalone } = useIOS();
   const iosNoInstalado = isIOS && !isStandalone;
+
+  // clienteId "principal" para asociar la suscripción push: esta pantalla
+  // no distingue por sede al pedir el permiso (es una suscripción por
+  // dispositivo, no por restaurante), así que se toma el primer clienteId
+  // disponible entre las sedes donde el usuario ya está inscrito. Si el
+  // usuario pertenece a varias sedes, la personalización usará el nombre
+  // de esa fila — no es perfecto para multi-sede, pero cubre el caso común
+  // (una sola sede) sin tener que rediseñar todo el flujo de suscripción.
+  const clienteIdPrincipal = restaurantes.find(r => r.clienteId)?.clienteId ?? null;
 
   // Sincronizar permiso real del navegador de forma segura
   useEffect(() => {
@@ -155,20 +182,21 @@ export function SelectorNotificaciones({ restaurantes = [] }) {
   // pueden rotar el endpoint de vez en cuando.
   useEffect(() => {
     if (permiso === 'granted' && !iosNoInstalado) {
-      suscribirPushYGuardar();
+      suscribirPushYGuardar(null, clienteIdPrincipal);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [permiso, iosNoInstalado]);
+  }, [permiso, iosNoInstalado, clienteIdPrincipal]);
 
   const pedirPermiso = useCallback(async () => {
     if (typeof window !== 'undefined' && 'Notification' in window) {
       const resultado = await Notification.requestPermission();
       setPermiso(resultado);
       if (resultado === 'granted') {
-        await suscribirPushYGuardar();
+        await suscribirPushYGuardar(null, clienteIdPrincipal);
       }
     }
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clienteIdPrincipal]);
 
   const toggleRestaurante = (id) => {
     const nuevoValor = !prefs[id];
