@@ -92,13 +92,26 @@ export const SuccessCard = ({
   const [montoMinimoRedencion, setMontoMinimoRedencion] = useState(15000);
   useEffect(() => {
     if (!restauranteId) return;
+    // FIX: mismo patrón que CatalogoRecompensas.jsx/HistorialPuntos.jsx —
+    // este `.then()` no tenía `.catch()`. No es crítico (montoMinimoRedencion
+    // ya tiene un valor por defecto de 15000 vía useState), pero un rechazo
+    // sin manejar igual aparecía en consola como "Uncaught (in promise) ▶
+    // Object" en esta misma pantalla (SuccessCard, justo después de
+    // registrarse), sumándose a los otros casos reportados.
     supabase
       .from('configuracion_restaurantes')
       .select('monto_minimo_redencion')
       .eq('restaurante_id', restauranteId)
       .maybeSingle()
-      .then(({ data }) => {
+      .then(({ data, error }) => {
+        if (error) {
+          console.warn('[SuccessCard] No se pudo cargar el monto mínimo de redención, se usa el valor por defecto:', error.message);
+          return;
+        }
         if (data?.monto_minimo_redencion) setMontoMinimoRedencion(data.monto_minimo_redencion);
+      })
+      .catch((err) => {
+        console.warn('[SuccessCard] Error inesperado cargando el monto mínimo de redención:', err?.message || err);
       });
   }, [restauranteId]);
 

@@ -128,10 +128,22 @@ function App() {
   // real de autenticación sin tener que revisarlo manualmente en cada
   // componente.
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session: s } }) => {
-      setSession(s);
-      setSessionLoaded(true);
-    });
+    // FIX: este `.then()` no tenía `.catch()`. Además de sumarse a los
+    // "Uncaught (in promise) ▶ Object" reportados, un rechazo acá era peor
+    // que en los otros casos: `sessionLoaded` nunca pasaba a `true`, así que
+    // la app se quedaba congelada en la pantalla de carga inicial en vez de
+    // simplemente no tener puntos/historial. El catch de abajo garantiza que
+    // siempre se decide un estado (sin sesión) aunque falle la lectura.
+    supabase.auth.getSession()
+      .then(({ data: { session: s } }) => {
+        setSession(s);
+        setSessionLoaded(true);
+      })
+      .catch((err) => {
+        console.error('[App] No se pudo leer la sesión guardada:', err?.message || err);
+        setSession(null);
+        setSessionLoaded(true);
+      });
 
     const { data: listener } = supabase.auth.onAuthStateChange((event, s) => {
       if (event === 'PASSWORD_RECOVERY') {

@@ -66,14 +66,31 @@ export function CatalogoRecompensas({ restauranteId, puntosActuales = 0, onCanje
 
   useEffect(() => {
     if (!restauranteId) return;
+    // FIX: esta consulta no tenía manejo de error — ni `error` en el
+    // destructure del `.then()`, ni un `.catch()` detrás. Si el fetch
+    // rechaza (red caída, token de sesión venciendo justo en ese
+    // instante, etc.) la promesa quedaba sin manejar y Chrome la
+    // reportaba como "Uncaught (in promise) ▶ Object" en consola —
+    // exactamente el patrón reportado, y sin romper la UI porque
+    // `cargando` nunca se apagaba (el catch de abajo ahora sí lo hace).
     supabase
       .from('recompensas')
       .select('*')
       .eq('restaurante_id', restauranteId)
       .eq('activo', true)
       .order('puntos_requeridos', { ascending: true })
-      .then(({ data }) => {
-        setRecompensas(data || []);
+      .then(({ data, error }) => {
+        if (error) {
+          console.error('[CatalogoRecompensas] No se pudieron cargar las recompensas:', error.message);
+          setRecompensas([]);
+        } else {
+          setRecompensas(data || []);
+        }
+        setCargando(false);
+      })
+      .catch((err) => {
+        console.error('[CatalogoRecompensas] Error inesperado cargando recompensas:', err?.message || err);
+        setRecompensas([]);
         setCargando(false);
       });
   }, [restauranteId]);

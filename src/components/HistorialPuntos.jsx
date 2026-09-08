@@ -93,10 +93,25 @@ export function HistorialPuntos({ clienteId, restauranteId, mostrarVacio = false
 
     if (restauranteId) query = query.eq('restaurante_id', restauranteId);
 
-    query.then(({ data }) => {
-      setHistorial(data || []);
-      setCargando(false);
-    });
+    // FIX: igual que en CatalogoRecompensas.jsx — faltaba leer `error` del
+    // resultado y faltaba un `.catch()` detrás del `.then()`. Sin esto, un
+    // rechazo de la promesa (red caída, sesión venciendo, etc.) quedaba sin
+    // manejar y aparecía en consola como "Uncaught (in promise) ▶ Object".
+    query
+      .then(({ data, error }) => {
+        if (error) {
+          console.error('[HistorialPuntos] No se pudo cargar el historial:', error.message);
+          setHistorial([]);
+        } else {
+          setHistorial(data || []);
+        }
+        setCargando(false);
+      })
+      .catch((err) => {
+        console.error('[HistorialPuntos] Error inesperado cargando el historial:', err?.message || err);
+        setHistorial([]);
+        setCargando(false);
+      });
   }, [clienteId, restauranteId]);
 
   // Uso embebido en el dashboard (mostrarVacio=false, comportamiento
