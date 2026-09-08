@@ -3,6 +3,7 @@ import { supabase } from '../services/supabaseClient';
 import { TarjetaFidelizacion }              from './TarjetaFidelizacion';
 import RedimirPuntosModal                   from './RedimirPuntosModal';
 import { BarraProgresoPuntos }              from './BarraProgresoPuntos';
+import { PuntosPorVencer }                  from './PuntosPorVencer';
 import { useGeofencingContext }             from './GeofencingProvider';
 import './UserDashboard.css';
 import './BarraProgresoPuntos.css';
@@ -186,6 +187,9 @@ export const UserDashboard = ({
         montoMinimoRedencion={montoMinimoRedencion}
         onPagarConPuntos={() => setMostrarRedimir(true)}
       />
+
+      {/* ── Tus puntos por vencer (vigencia de 90 días) ──────────────── */}
+      <PuntosPorVencer clienteId={clienteId} restauranteId={restauranteId} />
 
       {/* Nombre del cliente */}
       <div style={{ width: '100%' }}>

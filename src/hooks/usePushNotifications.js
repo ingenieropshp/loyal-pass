@@ -27,17 +27,18 @@ async function guardarTokenEnSupabase(token) {
   const deviceId = await getDeviceId();
   if (!deviceId) return;
 
-  const { error } = await supabase
-    .from('device_push_tokens')
-    .upsert(
-      {
-        device_id: deviceId,
-        fcm_token: token,
-        platform: Capacitor.getPlatform(),
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'device_id' }
-    );
+  // SEGURIDAD: ya no se escribe directo a `device_push_tokens` (esa tabla
+  // quedó blindada — sin política RLS abierta para anon/authenticated).
+  // Ahora se pasa por la función RPC `fn_guardar_token_push`, que corre
+  // como SECURITY DEFINER y hace el mismo upsert (device_id, fcm_token,
+  // platform) pero con privilegios controlados, para que nadie pueda
+  // escribir o pisar el token de OTRO dispositivo llamando directo a la
+  // tabla con las llaves públicas del proyecto.
+  const { error } = await supabase.rpc('fn_guardar_token_push', {
+    p_device_id: deviceId,
+    p_fcm_token: token,
+    p_platform: Capacitor.getPlatform(),
+  });
 
   if (error) {
     console.error('[usePushNotifications] Error guardando token FCM:', error.message);

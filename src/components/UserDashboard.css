@@ -111,8 +111,8 @@
 
 .coupon-code {
   display: inline-block;
-  background: rgba(232,86,58,0.15);
-  border: 1px solid rgba(232,86,58,0.35);
+  background: rgba(212,175,55,0.15);
+  border: 1px solid rgba(212,175,55,0.35);
   border-radius: var(--r-sm);
   padding: 4px 10px;
   font-size: 13px;

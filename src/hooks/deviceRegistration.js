@@ -8,7 +8,10 @@
 
 import { Device } from '@capacitor/device';
 import { PushNotifications } from '@capacitor/push-notifications';
-import { supabase } from '../lib/supabaseClient'; // ajusta la ruta a tu cliente Supabase
+// FIX: la ruta real del cliente Supabase en este proyecto es
+// 'services/supabaseClient', no 'lib/supabaseClient' (ese archivo no
+// existe) — el import estaba roto.
+import { supabase } from '../services/supabaseClient';
 
 const DEVICE_ID_KEY = 'bistro_device_id';
 
@@ -63,17 +66,16 @@ export async function registerDeviceForPush() {
     });
   });
 
-  const { error } = await supabase
-    .from('device_push_tokens')
-    .upsert(
-      {
-        device_id: deviceId,
-        fcm_token: fcmToken,
-        platform: deviceInfo.platform, // 'ios' | 'android'
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'device_id' }
-    );
+  // SEGURIDAD: igual que en usePushNotifications.js — la tabla
+  // `device_push_tokens` ya no acepta escrituras directas desde
+  // anon/authenticated (RLS blindado). Se usa la función RPC
+  // `fn_guardar_token_push` (SECURITY DEFINER), que hace el mismo upsert
+  // del lado del servidor con privilegios controlados.
+  const { error } = await supabase.rpc('fn_guardar_token_push', {
+    p_device_id: deviceId,
+    p_fcm_token: fcmToken,
+    p_platform: deviceInfo.platform, // 'ios' | 'android'
+  });
 
   if (error) throw error;
 

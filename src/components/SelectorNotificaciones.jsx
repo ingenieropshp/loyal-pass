@@ -249,7 +249,7 @@ export function SelectorNotificaciones({ restaurantes = [] }) {
         <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <span style={{
             fontSize: '0.75rem', fontWeight: 700, padding: '2px 8px',
-            background: activados > 0 ? '#E8563A' : '#ccc',
+            background: activados > 0 ? '#D4AF37' : '#ccc',
             color: 'white', borderRadius: 20,
             display: 'inline-block'
           }}>
@@ -309,7 +309,7 @@ export function SelectorNotificaciones({ restaurantes = [] }) {
               <button
                 onClick={pedirPermiso}
                 style={{
-                  padding: '9px 18px', background: '#E8563A', color: 'white',
+                  padding: '9px 18px', background: '#D4AF37', color: 'white',
                   border: 'none', borderRadius: 10, fontWeight: 700,
                   fontSize: '0.82rem', cursor: 'pointer', width: '100%',
                   display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px'
@@ -328,8 +328,8 @@ export function SelectorNotificaciones({ restaurantes = [] }) {
           {/* Acciones rápidas */}
           <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
             <button onClick={activarTodos} style={{
-              flex: 1, padding: '7px', background: 'rgba(232,86,58,0.1)',
-              color: '#E8563A', border: '1px solid rgba(232,86,58,0.3)',
+              flex: 1, padding: '7px', background: 'rgba(212,175,55,0.1)',
+              color: '#D4AF37', border: '1px solid rgba(212,175,55,0.3)',
               borderRadius: 8, fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer',
             }}>
               Activar todos
@@ -355,8 +355,8 @@ export function SelectorNotificaciones({ restaurantes = [] }) {
                   style={{
                     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                     padding: '12px 14px',
-                    background: activo ? 'rgba(232,86,58,0.06)' : 'rgba(0,0,0,0.03)',
-                    border: `1px solid ${activo ? 'rgba(232,86,58,0.2)' : 'rgba(0,0,0,0.07)'}`,
+                    background: activo ? 'rgba(212,175,55,0.06)' : 'rgba(0,0,0,0.03)',
+                    border: `1px solid ${activo ? 'rgba(212,175,55,0.2)' : 'rgba(0,0,0,0.07)'}`,
                     borderRadius: 12, cursor: permiso !== 'denied' ? 'pointer' : 'default',
                     transition: 'all 0.15s',
                     listStyle: 'none'
@@ -375,7 +375,7 @@ export function SelectorNotificaciones({ restaurantes = [] }) {
                   {/* Toggle switch */}
                   <div style={{
                     width: 44, height: 26, borderRadius: 13, position: 'relative',
-                    background: activo ? '#E8563A' : '#ccc',
+                    background: activo ? '#D4AF37' : '#ccc',
                     transition: 'background 0.2s', flexShrink: 0,
                   }}>
                     <div style={{

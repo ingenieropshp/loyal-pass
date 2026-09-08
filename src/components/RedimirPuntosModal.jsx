@@ -189,11 +189,27 @@ export default function RedimirPuntosModal({
               Muéstrale este código al cajero para que confirme el pago de <strong>${parseInt(montoARedimir, 10).toLocaleString()} COP</strong> con tus puntos.
             </p>
 
-            <div style={{ background: 'var(--bg-subtle)', border: '1px solid var(--border)', borderRadius: 14, padding: 16, marginBottom: 18 }}>
-              <span style={{ fontSize: '0.7rem', color: 'var(--text)', opacity: 0.55, textTransform: 'uppercase' }}>
+            {/* Paso 2 del flujo de redención: código de 6 dígitos — diseño
+                "Luxury Charcoal & Gold" pedido explícitamente en negro
+                profundo con el código brillando en dorado, distinto del
+                resto de la tarjeta (que usa var(--bg-card), ya dorado/
+                charcoal por el tema, pero este bloque debe verse aún más
+                premium/oscuro que el resto del modal). */}
+            <div style={{
+              background: '#000000',
+              border: '1px solid rgba(212,175,55,0.4)',
+              borderRadius: 14, padding: '20px 16px', marginBottom: 18,
+              boxShadow: 'inset 0 0 0 1px rgba(212,175,55,0.08), 0 0 30px rgba(212,175,55,0.08)',
+            }}>
+              <span style={{ fontSize: '0.7rem', color: '#D4AF37', opacity: 0.85, textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 700 }}>
                 Código de validación
               </span>
-              <div style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: '2.2rem', letterSpacing: '0.1em', color: 'var(--text-h)' }}>
+              <div style={{
+                fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: '2.4rem',
+                letterSpacing: '0.14em', color: '#F5D26B',
+                textShadow: '0 0 18px rgba(212,175,55,0.55), 0 0 2px rgba(212,175,55,0.8)',
+                marginTop: 4,
+              }}>
                 {codigoValidacion}
               </div>
             </div>
