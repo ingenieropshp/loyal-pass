@@ -166,12 +166,26 @@ export const buscarClienteEnRestaurante = async ({ authUserId, restauranteId }) 
  * webhook responde 404 "cliente_no_resuelto" y ningún bono de proximidad
  * se acredita nunca, ni ahora ni en visitas futuras.
  *
- * BUG ENCONTRADO: esta tabla ya tenía sus políticas RLS de INSERT/UPDATE
- * abiertas para anon/authenticated (`with_check: true`) — estaba lista
- * para recibir este upsert — pero ningún lugar del código la llamaba. Por
- * eso la tabla estaba vacía y el sistema de proximidad no funcionaba para
- * NINGÚN cliente, más allá de los otros bugs corregidos en la migración
- * 003_fix_fn_evento_geocerca_columna_puntos_obsoleta.sql.
+ * BUG ENCONTRADO (migración 004): esta función SÍ se llamaba, pero el
+ * upsert fallaba SIEMPRE y en silencio. La tabla tenía políticas RLS
+ * abiertas de INSERT y UPDATE pero ninguna de SELECT, y Postgres exige
+ * política de SELECT para `INSERT ... ON CONFLICT DO UPDATE` (que es en lo
+ * que PostgREST traduce `.upsert(..., { onConflict })`) porque necesita
+ * leer la fila en conflicto. Abortaba con
+ * "42501: new row violates row-level security policy" mientras que el
+ * INSERT simple equivalente sí pasaba. Como acá el error solo se logueaba,
+ * `dispositivos_clientes` quedó en 0 filas, el webhook respondía 404
+ * "cliente_no_resuelto" en cada evento y NINGÚN cliente recibió jamás el
+ * bono de +200.
+ *
+ * Ya no se escribe la tabla desde el navegador: se llama al RPC
+ * `fn_vincular_dispositivo` (SECURITY DEFINER, mismo patrón que
+ * `fn_registrar_referido`), que corre como dueño de la tabla — RLS no le
+ * aplica y el ON CONFLICT ya no necesita SELECT — y además valida del lado
+ * del servidor que el cliente pertenezca a esta sede y sea el de la sesión
+ * actual. Las políticas abiertas se eliminaron en esa misma migración:
+ * permitían que cualquiera con la anon key apuntara el device_id de otra
+ * persona a su propio cliente_id y cosechara bonos ajenos.
  *
  * Se llama una sola vez, en el momento del registro (acá abajo), porque es
  * cuando por primera vez se conocen a la vez deviceId + cliente_id +
@@ -183,17 +197,11 @@ export const buscarClienteEnRestaurante = async ({ authUserId, restauranteId }) 
 async function vincularDispositivo({ deviceId, restauranteId, clienteId }) {
   if (!deviceId || !restauranteId || !clienteId) return;
   try {
-    const { error } = await supabase
-      .from('dispositivos_clientes')
-      .upsert(
-        {
-          device_id:      deviceId,
-          restaurante_id: restauranteId,
-          cliente_id:     clienteId,
-          actualizado_en: new Date().toISOString(),
-        },
-        { onConflict: 'device_id,restaurante_id' } // PK compuesta de la tabla
-      );
+    const { error } = await supabase.rpc('fn_vincular_dispositivo', {
+      p_device_id:      deviceId,
+      p_restaurante_id: restauranteId,
+      p_cliente_id:     clienteId,
+    });
     if (error) {
       console.warn('[vincularDispositivo] No se pudo vincular el dispositivo:', error.message);
     }
