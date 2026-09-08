@@ -26,7 +26,14 @@
    sí cambió en el resto del sistema.
    ===================================================== */
 
-const CACHE_NAME = 'bistro-connect-v3';
+// v4: subir este nombre es lo que hace que el handler 'activate' borre las
+// cachés viejas. Sin ese cambio, el fetch cache-first de más abajo seguía
+// devolviendo el /index.html guardado, y con él el bundle viejo — un
+// dispositivo que ya hubiera abierto la app NUNCA veía un despliegue nuevo
+// (fue exactamente lo que pasó con el fix de vinculación de dispositivo:
+// estaba en producción y los teléfonos seguían corriendo el código anterior).
+// SUBIR ESTE NÚMERO EN CADA DESPLIEGUE QUE DEBA LLEGAR SÍ O SÍ.
+const CACHE_NAME = 'bistro-connect-v4';
 const STATIC_ASSETS = ['/', '/index.html'];
 
 // ── Almacén en memoria del SW (persiste mientras el SW está vivo) ─────────────
@@ -150,6 +157,24 @@ self.addEventListener('fetch', (event) => {
   if (url.hostname.includes('supabase.co')) return;
   if (url.protocol === 'chrome-extension:') return;
   if (event.request.method !== 'GET') return;
+
+  // Las navegaciones (el HTML) van SIEMPRE a la red primero, con la caché
+  // como respaldo para offline. El HTML es el único archivo con nombre fijo:
+  // es el que apunta a /assets/index-<hash>.js, así que si se sirve viejo,
+  // toda la app queda vieja. Los assets con hash en el nombre sí se quedan
+  // cache-first: un hash distinto es una URL distinta, nunca se sirven rancios.
+  if (event.request.mode === 'navigate') {
+    event.respondWith(
+      fetch(event.request).then((response) => {
+        if (response && response.ok && response.status === 200) {
+          const copia = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put('/index.html', copia));
+        }
+        return response;
+      }).catch(() => caches.match('/index.html').then((cached) => cached || caches.match('/')))
+    );
+    return;
+  }
 
   event.respondWith(
     caches.match(event.request).then((cached) => {
