@@ -234,12 +234,12 @@ export function SelectorNotificaciones({ restaurantes = [] }) {
         onClick={() => setVisible(v => !v)}
         style={{
           width: '100%', padding: '12px 16px',
-          background: 'var(--surface, #f5f5f0)',
-          border: '1px solid rgba(0,0,0,0.08)',
+          background: 'var(--charcoal-mate, #1A1A1A)',
+          border: '1px solid rgba(212,175,55,0.28)',
           borderRadius: 14, cursor: 'pointer',
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           fontSize: '0.88rem', fontWeight: 600,
-          color: 'var(--text, #1a1a1a)',
+          color: '#D4AF37',
           listStyle: 'none'
         }}
       >
@@ -249,13 +249,13 @@ export function SelectorNotificaciones({ restaurantes = [] }) {
         <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <span style={{
             fontSize: '0.75rem', fontWeight: 700, padding: '2px 8px',
-            background: activados > 0 ? '#D4AF37' : '#ccc',
-            color: 'white', borderRadius: 20,
+            background: activados > 0 ? '#D4AF37' : '#4A4A4A',
+            color: activados > 0 ? '#241A04' : '#FFFFFF', borderRadius: 20,
             display: 'inline-block'
           }}>
             {activados}/{restaurantes.length}
           </span>
-          <span style={{ fontSize: '0.8rem', opacity: 0.5, display: 'inline-block' }}>{visible ? '▲' : '▼'}</span>
+          <span style={{ fontSize: '0.8rem', opacity: 0.7, display: 'inline-block', color: '#FFFFFF' }}>{visible ? '▲' : '▼'}</span>
         </span>
       </button>
 
@@ -263,8 +263,8 @@ export function SelectorNotificaciones({ restaurantes = [] }) {
       {visible && (
         <div style={{
           marginTop: 8, padding: '16px',
-          background: 'var(--surface, #f5f5f0)',
-          border: '1px solid rgba(0,0,0,0.08)',
+          background: 'var(--charcoal-mate, #1A1A1A)',
+          border: '1px solid rgba(212,175,55,0.28)',
           borderRadius: 14,
         }}>
 
@@ -272,14 +272,15 @@ export function SelectorNotificaciones({ restaurantes = [] }) {
           {permiso === 'denied' && (
             <div style={{
               padding: '10px 14px', marginBottom: 12,
-              background: '#fff3cd', borderRadius: 10,
-              fontSize: '0.82rem', color: '#7d5900',
+              background: 'rgba(212,175,55,0.08)', borderRadius: 10,
+              border: '1px solid rgba(212,175,55,0.3)',
+              fontSize: '0.82rem', color: '#F5D26B',
               display: 'flex', alignItems: 'flex-start', gap: '8px'
             }}>
               <span>⚠️</span>
               <div>
                 Las notificaciones están bloqueadas en tu navegador.
-                Ve a <strong>Configuración → Permisos del sitio</strong> y actívalas para esta página.
+                Ve a <strong style={{ color: '#FFFFFF' }}>Configuración → Permisos del sitio</strong> y actívalas para esta página.
               </div>
             </div>
           )}
@@ -288,8 +289,9 @@ export function SelectorNotificaciones({ restaurantes = [] }) {
           {iosNoInstalado && (
             <div style={{
               padding: '10px 14px', marginBottom: 12,
-              background: '#fff3cd', borderRadius: 10,
-              fontSize: '0.82rem', color: '#7d5900',
+              background: 'rgba(212,175,55,0.08)', borderRadius: 10,
+              border: '1px solid rgba(212,175,55,0.3)',
+              fontSize: '0.82rem', color: '#F5D26B',
               display: 'flex', alignItems: 'flex-start', gap: '8px'
             }}>
               <span>📲</span>
@@ -303,7 +305,7 @@ export function SelectorNotificaciones({ restaurantes = [] }) {
           {/* Pedir permiso si no se ha decidido — solo cuando sí puede funcionar */}
           {permiso === 'default' && !iosNoInstalado && (
             <div style={{ marginBottom: 12 }}>
-              <p style={{ fontSize: '0.82rem', margin: '0 0 8px', opacity: 0.7 }}>
+              <p style={{ fontSize: '0.82rem', margin: '0 0 8px', color: '#FFFFFF', opacity: 0.75 }}>
                 Activa los permisos para recibir notificaciones cuando estés cerca.
               </p>
               <button
@@ -321,7 +323,7 @@ export function SelectorNotificaciones({ restaurantes = [] }) {
           )}
 
           {/* Descripción */}
-          <p style={{ fontSize: '0.78rem', opacity: 0.6, margin: '0 0 12px' }}>
+          <p style={{ fontSize: '0.78rem', color: '#FFFFFF', opacity: 0.75, margin: '0 0 12px' }}>
             Recibirás una notificación cuando estés cerca de los restaurantes seleccionados.
           </p>
 
@@ -335,8 +337,8 @@ export function SelectorNotificaciones({ restaurantes = [] }) {
               Activar todos
             </button>
             <button onClick={desactivarTodos} style={{
-              flex: 1, padding: '7px', background: 'rgba(0,0,0,0.05)',
-              color: 'var(--text-muted, #888)', border: '1px solid rgba(0,0,0,0.1)',
+              flex: 1, padding: '7px', background: 'rgba(255,255,255,0.06)',
+              color: '#FFFFFF', border: '1px solid rgba(255,255,255,0.14)',
               borderRadius: 8, fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer',
             }}>
               Desactivar todos
@@ -355,8 +357,8 @@ export function SelectorNotificaciones({ restaurantes = [] }) {
                   style={{
                     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                     padding: '12px 14px',
-                    background: activo ? 'rgba(212,175,55,0.06)' : 'rgba(0,0,0,0.03)',
-                    border: `1px solid ${activo ? 'rgba(212,175,55,0.2)' : 'rgba(0,0,0,0.07)'}`,
+                    background: '#2A2A2A',
+                    border: `1px solid ${activo ? 'rgba(212,175,55,0.45)' : 'rgba(212,175,55,0.15)'}`,
                     borderRadius: 12, cursor: permiso !== 'denied' ? 'pointer' : 'default',
                     transition: 'all 0.15s',
                     listStyle: 'none'
@@ -365,8 +367,8 @@ export function SelectorNotificaciones({ restaurantes = [] }) {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                     <span style={{ fontSize: '1.2rem', lineHeight: 1 }}>🍽️</span>
                     <div>
-                      <p style={{ margin: 0, fontWeight: 600, fontSize: '0.88rem' }}>{r.nombre}</p>
-                      <p style={{ margin: 0, fontSize: '0.72rem', opacity: 0.5, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <p style={{ margin: 0, fontWeight: 600, fontSize: '0.88rem', color: '#FFFFFF' }}>{r.nombre}</p>
+                      <p style={{ margin: 0, fontSize: '0.72rem', color: '#FFFFFF', opacity: 0.6, display: 'flex', alignItems: 'center', gap: '4px' }}>
                         {activo ? 'Te avisamos cuando estés cerca' : 'Notificaciones desactivadas'}
                       </p>
                     </div>
@@ -375,7 +377,8 @@ export function SelectorNotificaciones({ restaurantes = [] }) {
                   {/* Toggle switch */}
                   <div style={{
                     width: 44, height: 26, borderRadius: 13, position: 'relative',
-                    background: activo ? '#D4AF37' : '#ccc',
+                    background: activo ? 'var(--gold-gradient, #D4AF37)' : '#4A4A4A',
+                    boxShadow: activo ? '0 0 8px rgba(212,175,55,0.45)' : 'none',
                     transition: 'background 0.2s', flexShrink: 0,
                   }}>
                     <div style={{

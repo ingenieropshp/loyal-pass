@@ -26,6 +26,11 @@
   --luxury-cream:    #F5F5DC;
   --luxury-gold:     #D4AF37;
   --gold-gradient:   linear-gradient(135deg, #CA8A04 0%, #F5C451 45%, #EAB308 100%);
+  /* Carbón mate — pedido explícito para tarjetas/contenedores tipo
+   * "Mis Restaurantes / Notificaciones de cercanía" (SelectorNotificaciones.jsx),
+   * distinto de --luxury-charcoal para permitir dos capas de profundidad
+   * (contenedor principal vs. items internos) sin quedar planas. */
+  --charcoal-mate:   #1A1A1A;
 
   /* Surface */
   --bg:           var(--luxury-dark);
