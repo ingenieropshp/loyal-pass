@@ -14,6 +14,7 @@ import { BottomNav } from './components/BottomNav';
 import { ComingSoonScreen } from './components/ComingSoonScreen';
 import { HistorialPuntos } from './components/HistorialPuntos';
 import { CuentaScreen } from './components/CuentaScreen';
+import { CatalogoRecompensas } from './components/CatalogoRecompensas';
 import { useLocation }      from './hooks/useLocation';
 import { supabase, buscarClienteEnRestaurante, registrarLlegada } from './services/supabaseClient';
 import './App.css';
@@ -207,7 +208,13 @@ function App() {
 
             setClienteId(cliente.id);
             setNombreCliente(cliente.nombre);
-            setPuntosCliente(cliente.puntos);
+            // FIX: buscarClienteEnRestaurante ya devuelve saldo_puntos (columna
+            // real vigente) — este código todavía leía `.puntos` (columna que
+            // ya no existe en `clientes`), así que puntosCliente quedaba en
+            // `undefined` para cualquier usuario con sesión. Eso rompía la
+            // validación de saldo de la pantalla de Recompensas (y cualquier
+            // otro lugar que mostrara el saldo) para la mayoría de usuarios.
+            setPuntosCliente(cliente.saldo_puntos);
           } else {
             // Autenticado globalmente, pero aún NO inscrito en esta sede.
             delete registros[restauranteID];
@@ -215,8 +222,12 @@ function App() {
             setClienteId(null);
           }
         } else if (clienteId) {
+          // FIX: esta consulta pedía una columna `puntos` que ya no existe en
+          // `clientes` (la real es `saldo_puntos`) — PostgREST devolvía un
+          // error 400 en cada carga para cualquier usuario en esta ruta de
+          // compatibilidad (sin sesión, con clienteId guardado localmente).
           const { data: userDB, error: errorUser } = await supabase
-            .from('clientes').select('id, nombre, puntos')
+            .from('clientes').select('id, nombre, saldo_puntos')
             .eq('id', clienteId).maybeSingle();
 
           if (errorUser || !userDB) {
@@ -226,7 +237,7 @@ function App() {
             setClienteId(null);
           } else {
             setNombreCliente(userDB.nombre);
-            setPuntosCliente(userDB.puntos);
+            setPuntosCliente(userDB.saldo_puntos);
           }
         }
 
@@ -557,6 +568,14 @@ function App() {
             nombreCliente={nombreCliente}
             onLogout={handleLogout}
           />
+        ) : tabActiva === 'recompensas' ? (
+          <div style={{ width: '100%' }}>
+            <CatalogoRecompensas
+              restauranteId={sedeActual?.restaurante_id}
+              clienteId={clienteId}
+              puntosActuales={puntosCliente}
+            />
+          </div>
         ) : tabActiva !== 'inicio' ? (
           <ComingSoonScreen tab={tabActiva} titulo={TITULOS_TAB[tabActiva]} />
         ) : (
