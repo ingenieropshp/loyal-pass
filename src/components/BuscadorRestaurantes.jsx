@@ -2,10 +2,18 @@ import { useState, useEffect } from 'react';
 import { supabase } from '../services/supabaseClient';
 import { SelectorNotificaciones } from './SelectorNotificaciones';
 
-const calcularNivel = (ciclos = 0) => {
-  if (ciclos >= 10) return { label: 'Oro',    emoji: '🥇' };
-  if (ciclos >= 5)  return { label: 'Plata',  emoji: '🥈' };
-  return                   { label: 'Bronce', emoji: '🥉' };
+// Escala oficial del sistema de niveles gamificado (misma en TODA la app:
+// TarjetaFidelizacion.jsx aquí en bistro-app, calcularNivel() en
+// useAdminLogic.js en bistro-admin, y fn_calcular_nivel_desde_puntos() en
+// Supabase). El llamador pasa el saldo de puntos (`datos.puntos`).
+//   BRONCE 0–4.999 · PLATA 5.000–24.999 · ORO 25.000–74.999
+//   PLATINO 75.000–199.999 · LEYENDA 200.000+
+const calcularNivel = (puntos = 0) => {
+  if (puntos >= 200000) return { label: 'Leyenda', emoji: '🖤' };
+  if (puntos >= 75000)  return { label: 'Platino', emoji: '💎' };
+  if (puntos >= 25000)  return { label: 'Oro',      emoji: '🥇' };
+  if (puntos >= 5000)   return { label: 'Plata',    emoji: '🥈' };
+  return                       { label: 'Bronce',   emoji: '🥉' };
 };
 
 /**
@@ -141,7 +149,7 @@ export const BuscadorRestaurantes = ({ session, onLogout }) => {
           <div style={styles.list}>
             {misRestaurantes.map(r => {
               const datos = datosPorSede[r.id];
-              const nivel = datos ? calcularNivel(datos.ciclos) : null;
+              const nivel = datos ? calcularNivel(datos.puntos) : null;
               return (
                 <button key={r.id} onClick={() => irA(r.nombre)} style={{ ...styles.card, ...styles.cardMine }}>
                   <div style={styles.cardLeft}>
@@ -201,7 +209,7 @@ export const BuscadorRestaurantes = ({ session, onLogout }) => {
               filtrados.map(r => {
                 const datos    = datosPorSede[r.id];
                 const inscrito = !!datos;
-                const nivel    = datos ? calcularNivel(datos.ciclos) : null;
+                const nivel    = datos ? calcularNivel(datos.puntos) : null;
                 return (
                   <button key={r.id} onClick={() => irA(r.nombre)}
                     style={inscrito ? { ...styles.card, ...styles.cardMine } : styles.card}>

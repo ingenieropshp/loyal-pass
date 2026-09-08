@@ -11,25 +11,40 @@
  * `puntosTotales` que ya llegaba desde el padre ni siquiera se estaba
  * leyendo — por eso la tarjeta siempre mostraba 0.
  *
- * REDISEÑO "Luxury Charcoal & Gold" (100% visual — ninguna cifra ni regla
- * de negocio cambia aquí, solo cómo se dibuja): el fondo pasa de un
+ * REDISEÑO "Luxury Charcoal & Gold" (100% visual): el fondo pasa de un
  * degradado de color por nivel a negro/charcoal con borde dorado, y el
  * saldo de puntos ahora se muestra dentro de un dial circular dorado
  * metálico animado (SVG, stroke-dashoffset) en vez del número plano de
  * antes. El progreso del dial es el mismo `progresoNivel` que ya se
- * calculaba (0 a 1) — solo cambió cómo se dibuja, no cómo se calcula. Los
- * 4 niveles (Bronce/Plata/Oro/Platino) siguen exactamente iguales en sus
- * umbrales de puntos (NIVELES, sin tocar).
+ * calculaba (0 a 1) — solo cambió cómo se dibuja, no cómo se calcula.
+ *
+ * SISTEMA DE NIVELES GAMIFICADO (pedido explícito del usuario — reemplaza
+ * la escala simple anterior de 4 niveles sin beneficios): ahora son 5
+ * niveles con multiplicador de puntos y beneficio exclusivo, EXACTAMENTE
+ * los mismos umbrales que usa el backend en Supabase para calcular el
+ * multiplicador real (fn_calcular_nivel_desde_puntos / fn_multiplicador_nivel,
+ * ver migración sistema_niveles_gamificado_multiplicadores) — así el nivel
+ * y el "te faltan X pts" que ve el cliente aquí siempre coinciden con el
+ * nivel que la caja usó para calcular sus puntos.
  */
 
 import { useId, useMemo } from 'react';
 
 // ── Definición de niveles ────────────────────────────────────────────────────
+// Escala oficial y multiplicadores (SOLO se aplican a los puntos de
+// CONSUMO en caja — los bonos fijos de geocerca se mantienen igual sin
+// importar el nivel, ver fn_registrar_consumo en Supabase):
+//   BRONCE           0 –   4.999 pts · 1.00x
+//   PLATA        5.000 –  24.999 pts · 1.10x
+//   ORO         25.000 –  74.999 pts · 1.25x + Postre en tu cumpleaños
+//   PLATINO     75.000 – 199.999 pts · 1.50x + Mesa preferencial
+//   LEYENDA (Black) 200.000+ pts     · 1.50x + Beneficio anual exclusivo
 const NIVELES = [
-  { nombre: 'Bronce', icono: '🥉', min: 0,    max: 200,  color: '#CD7F32', bg: 'linear-gradient(135deg, #b5651d 0%, #8B4513 100%)' },
-  { nombre: 'Plata',  icono: '🥈', min: 200,  max: 500,  color: '#C0C0C0', bg: 'linear-gradient(135deg, #9E9E9E 0%, #616161 100%)' },
-  { nombre: 'Oro',    icono: '🥇', min: 500,  max: 1000, color: '#FFD700', bg: 'linear-gradient(135deg, #F9A825 0%, #F57F17 100%)' },
-  { nombre: 'Platino',icono: '💎', min: 1000, max: null,  color: '#B2EBF2', bg: 'linear-gradient(135deg, #00BCD4 0%, #006064 100%)' },
+  { nombre: 'Bronce',  icono: '🥉', min: 0,      max: 5000,   multiplicador: 1.00, beneficio: '1.0x puntos',                            color: '#CD7F32', bg: 'linear-gradient(135deg, #b5651d 0%, #8B4513 100%)' },
+  { nombre: 'Plata',   icono: '🥈', min: 5000,   max: 25000,  multiplicador: 1.10, beneficio: '1.1x puntos',                            color: '#C0C0C0', bg: 'linear-gradient(135deg, #9E9E9E 0%, #616161 100%)' },
+  { nombre: 'Oro',     icono: '🥇', min: 25000,  max: 75000,  multiplicador: 1.25, beneficio: '1.25x puntos + Postre en tu cumpleaños',  color: '#FFD700', bg: 'linear-gradient(135deg, #F9A825 0%, #F57F17 100%)' },
+  { nombre: 'Platino', icono: '💎', min: 75000,  max: 200000, multiplicador: 1.50, beneficio: '1.5x puntos + Mesa preferencial',         color: '#B2EBF2', bg: 'linear-gradient(135deg, #00BCD4 0%, #006064 100%)' },
+  { nombre: 'Leyenda', icono: '🖤', min: 200000, max: null,   multiplicador: 1.50, beneficio: '1.5x puntos + Beneficio anual exclusivo', color: '#D4AF37', bg: 'linear-gradient(135deg, #2a2a2a 0%, #000000 100%)' },
 ];
 
 function getNivel(puntosTotales) {
@@ -178,15 +193,16 @@ export function TarjetaFidelizacion({
               <p style={{ margin: 0, fontSize: '0.78rem', opacity: 0.8 }}>
                 {puntosTotales.toLocaleString()} / {siguienteNivel.min.toLocaleString()} pts
               </p>
-              <p style={{ margin: '6px 0 0', fontSize: '0.7rem', opacity: 0.6 }}>
-                Te faltan {puntosParaSiguiente.toLocaleString()} pts
+              <p style={{ margin: '6px 0 0', fontSize: '0.7rem', opacity: 0.75 }}>
+                ¡Estás a <strong style={{ opacity: 1 }}>{puntosParaSiguiente.toLocaleString()} pts</strong> de desbloquear {siguienteNivel.nombre}{' '}
+                ({siguienteNivel.beneficio})!
               </p>
             </>
           )}
           {!cargando && !siguienteNivel && (
             <p style={{ margin: 0, fontSize: '0.78rem', color: '#D4AF37', fontWeight: 700 }}>
-              💎 Nivel máximo alcanzado<br />
-              <span style={{ color: 'inherit', opacity: 0.75, fontWeight: 500 }}>Eres un cliente élite</span>
+              {nivel.icono} Nivel máximo alcanzado<br />
+              <span style={{ color: 'inherit', opacity: 0.75, fontWeight: 500 }}>{nivel.beneficio}</span>
             </p>
           )}
         </div>
