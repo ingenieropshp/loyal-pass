@@ -1,0 +1,233 @@
+/**
+ * CentroNotificaciones.css
+ * ────────────────────────────────────────────────────────────────────────
+ * Este archivo no existía: CentroNotificaciones.jsx usaba clases
+ * `centro-notif-*` que no estaban definidas en ningún CSS del proyecto
+ * (App.css, index.css, ni ninguno de los .css por componente). Por eso el
+ * panel se renderizaba sin ninguna regla de posicionamiento — un <div> más
+ * en el flujo normal de la página, a todo el ancho, empujando el contenido
+ * de abajo ("101 Bistro.") — en vez del dropdown flotante "Luxury Charcoal
+ * & Gold" que el comentario de cabecera del componente decía que era.
+ *
+ * Fix: dropdown flotante posicionado justo debajo de la campana de
+ * AppHeader.jsx (position: fixed; top: 60px; right: 16px; z-index: 9999),
+ * con fondo oscuro semitransparente detrás para separarlo del contenido, y
+ * la paleta Luxury Charcoal & Gold pedida explícitamente: fondo #1A1A1A,
+ * borde dorado sutil, título blanco, texto secundario gris claro, e
+ * íconos/acentos dorados.
+ */
+
+/* ── Fondo detrás del dropdown ─────────────────────────────────────────── */
+.centro-notif-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9998;
+  background: rgba(0, 0, 0, 0);
+  backdrop-filter: blur(0px);
+  -webkit-backdrop-filter: blur(0px);
+  pointer-events: none;
+  transition: background 0.2s ease, backdrop-filter 0.2s ease;
+}
+.centro-notif-overlay.is-open {
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  pointer-events: auto;
+}
+
+/* ── El dropdown en sí — flotante, justo debajo de la campana ──────────── */
+.centro-notif-drawer {
+  position: fixed;
+  top: 60px;
+  right: 16px;
+  z-index: 9999;
+  width: min(370px, calc(100vw - 32px));
+  max-height: min(75vh, 560px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+
+  background: #1A1A1A;
+  border: 1px solid rgba(212, 175, 55, 0.3);
+  border-radius: 16px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.55), 0 0 26px rgba(212, 175, 55, 0.12);
+
+  opacity: 0;
+  transform: translateY(-8px) scale(0.98);
+  pointer-events: none;
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+.centro-notif-drawer.is-open {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  pointer-events: auto;
+}
+
+/* ── Header: título + botón cerrar ──────────────────────────────────────── */
+.centro-notif-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 18px 12px;
+  border-bottom: 1px solid rgba(212, 175, 55, 0.16);
+  flex-shrink: 0;
+}
+.centro-notif-header h3 {
+  margin: 0;
+  font-family: var(--font-display, 'Syne', sans-serif);
+  font-weight: 800;
+  font-size: 1rem;
+  color: #FFFFFF;
+}
+.centro-notif-cerrar {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: rgba(245, 245, 220, 0.06);
+  border: 1px solid rgba(212, 175, 55, 0.3);
+  color: #D4AF37;
+  font-size: 0.85rem;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s;
+}
+.centro-notif-cerrar:hover { background: rgba(212, 175, 55, 0.14); }
+
+/* ── Diagnóstico de permisos (GPS / push) ───────────────────────────────── */
+.centro-notif-diagnostico {
+  padding: 12px 18px;
+  border-bottom: 1px solid rgba(212, 175, 55, 0.16);
+  flex-shrink: 0;
+}
+.centro-notif-diag-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 0;
+  font-size: 0.82rem;
+  color: #9CA3AF;
+}
+.centro-notif-diag-estado {
+  flex-shrink: 0;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 2px 9px;
+  border-radius: 99px;
+}
+.centro-notif-diag-estado.activa      { background: rgba(74, 222, 128, 0.14); color: #4ADE80; }
+.centro-notif-diag-estado.inactiva    { background: rgba(248, 113, 113, 0.14); color: #F87171; }
+.centro-notif-diag-estado.desconocida { background: rgba(212, 175, 55, 0.14); color: #D4AF37; }
+
+.centro-notif-diag-nota {
+  margin: 6px 0 0;
+  font-size: 0.72rem;
+  line-height: 1.5;
+  color: #9CA3AF;
+}
+
+.centro-notif-diag-btn {
+  padding: 6px 12px;
+  background: transparent;
+  border: 1px solid rgba(212, 175, 55, 0.4);
+  border-radius: 8px;
+  color: #D4AF37;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s;
+}
+.centro-notif-diag-btn:hover { background: rgba(212, 175, 55, 0.1); }
+
+/* ── Lista de notificaciones ────────────────────────────────────────────── */
+.centro-notif-list {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+/* Estado vacío — centrado, gris claro, con aire alrededor */
+.centro-notif-vacio {
+  margin: 0;
+  padding: 24px;
+  text-align: center;
+  font-size: 0.85rem;
+  color: #9CA3AF;
+}
+
+.centro-notif-item {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 18px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+.centro-notif-item:last-child { border-bottom: none; }
+.centro-notif-item.no-leida { background: rgba(212, 175, 55, 0.05); }
+
+.centro-notif-icon { font-size: 1.05rem; line-height: 1.3; flex-shrink: 0; }
+.centro-notif-texto { flex: 1; min-width: 0; }
+.centro-notif-titulo {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #FFFFFF;
+}
+.centro-notif-contenido {
+  margin: 2px 0 0;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: #9CA3AF;
+}
+.centro-notif-fecha {
+  margin: 4px 0 0;
+  font-size: 0.68rem;
+  color: #6B7280;
+}
+.centro-notif-dot {
+  flex-shrink: 0;
+  margin-top: 4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #D4AF37;
+}
+
+/* ── Footer ──────────────────────────────────────────────────────────────── */
+.centro-notif-footer {
+  padding: 12px 18px;
+  border-top: 1px solid rgba(212, 175, 55, 0.16);
+  flex-shrink: 0;
+}
+.centro-notif-btn-marcar {
+  width: 100%;
+  padding: 9px;
+  background: transparent;
+  border: 1px solid rgba(212, 175, 55, 0.4);
+  border-radius: 10px;
+  color: #D4AF37;
+  font-weight: 700;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+}
+.centro-notif-btn-marcar:hover:not(:disabled) { background: rgba(212, 175, 55, 0.1); }
+.centro-notif-btn-marcar:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* Scrollbar delgado dentro del dropdown, consistente con el resto de la app */
+.centro-notif-list::-webkit-scrollbar { width: 5px; }
+.centro-notif-list::-webkit-scrollbar-track { background: transparent; }
+.centro-notif-list::-webkit-scrollbar-thumb { background: rgba(212, 175, 55, 0.34); border-radius: 99px; }
+
+/* Pantallas muy angostas: el dropdown ya se ajusta con min(), pero evitamos
+   que quede pegado al borde si right:16px + el ancho no cupieran del todo. */
+@media (max-width: 380px) {
+  .centro-notif-drawer { right: 10px; left: 10px; width: auto; }
+}

@@ -18,6 +18,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { chequearPermisoGPS, chequearPermisoPush, abrirConfiguracionSistema } from '../utils/permisosDispositivo';
 import { abrirGuiaPermisos } from './GuiaPermisosModal';
+import './CentroNotificaciones.css';
 
 function iconoParaTipo(tipo = '') {
   const t = String(tipo).toLowerCase();
