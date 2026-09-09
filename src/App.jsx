@@ -396,7 +396,24 @@ function App() {
     nombreSede: sedeActual?.nombre || restauranteID,
   }), [sedeActual, restauranteID]);
 
-  const volverAlBuscador = () => { window.location.href = '/'; };
+  // FIX (bucle búsqueda/retorno): antes, "← Buscador" solo hacía
+  // `window.location.href = '/'` sin tocar CLAVE_ESCANEO_PENDIENTE. Si el
+  // usuario había llegado aquí con un `?restaurante_id=`/`?r=` en la URL
+  // (por QR o por "Unirme" desde el buscador), el efecto de arriba (líneas
+  // 67-78) ya había guardado ese restaurante como "escaneo pendiente" en
+  // localStorage. Al volver a '/' sin ese parámetro, el estado inicial de
+  // `restauranteID` (líneas 56-62) lo leía de vuelta desde ahí — así que el
+  // usuario quedaba atrapado: tocaba "← Buscador" para salir del registro y
+  // la app lo devolvía de inmediato a la MISMA pantalla de "Crea tu perfil"
+  // en vez de al buscador. Limpiar el escaneo pendiente acá, antes de
+  // navegar, corta ese bucle sin afectar el caso legítimo para el que existe
+  // CLAVE_ESCANEO_PENDIENTE (usuario que cierra la pestaña para confirmar su
+  // correo y vuelve días después sin el parámetro en la URL) — ese caso
+  // nunca pasa por este botón.
+  const volverAlBuscador = () => {
+    limpiarEscaneoPendiente();
+    window.location.href = '/';
+  };
 
   const handleSuccess = (nuevoId, nombre, puntos, reingreso = false) => {
     const registros = JSON.parse(localStorage.getItem('loyalpass_multisede') || '{}');
