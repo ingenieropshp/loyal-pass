@@ -42,7 +42,15 @@ import { getDeviceId } from '../utils/deviceId';
 // para resolver un user_id que el webhook nunca leía) se quitó junto con
 // userIdRef — ver el fix de enviarEventoGeocercaWebhook más abajo.
 
-const CANAL_ID_GEOFENCE = 'geofence-alerts';
+// Exportado (antes era privado de este archivo) para que
+// usePushNotifications.js pueda crear/asegurar EXACTAMENTE el mismo canal
+// nativo de Android antes de que exista cualquier geocerca configurada —
+// los IDs de canal de notificación son un recurso del sistema operativo,
+// compartido entre @capacitor/local-notifications y
+// @capacitor/push-notifications: si un push FCM llega con un `channel_id`
+// que no coincide carácter por carácter con uno ya creado, Android lo
+// descarta en silencio (no lanza error, simplemente no se muestra nada).
+export const CANAL_ID_GEOFENCE = 'geofence-alerts';
 
 // Edge Function de Supabase. Recibe tanto el POST nativo del plugin (app
 // cerrada, ver setupGeofencing más abajo) como el POST directo que este
