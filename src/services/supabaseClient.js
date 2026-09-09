@@ -124,9 +124,16 @@ export const buscarClienteEnRestaurante = async ({ authUserId, restauranteId }) 
     .select('id, nombre, saldo_puntos')
     .eq('auth_user_id', authUserId)
     .eq('restaurante_id', restauranteId)
+    // FIX: sin este filtro, un cliente que se desvinculó voluntariamente de
+    // este restaurante (fn_cliente_desvincula_restaurante → activo=false)
+    // seguía "encontrado" aquí si volvía a abrir el enlace directo de esta
+    // sede — y la app le mostraba de nuevo su tablero (ya vacío, en 0 pts)
+    // en vez de tratarlo como no inscrito. Con `activo=true`, se le muestra
+    // "Crea tu perfil" otra vez, igual que a cualquier usuario nuevo.
+    .eq('activo', true)
     .maybeSingle();
   if (error) throw error;
-  return data; // null → aún no inscrito en este restaurante
+  return data; // null → aún no inscrito (o se desvinculó) en este restaurante
 };
 
 /**

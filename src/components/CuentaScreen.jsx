@@ -26,11 +26,22 @@
  * nacimiento sigue el mismo blindaje: una vez tiene valor, el propio
  * backend la vuelve a fijar en su valor anterior si el cliente intenta
  * cambiarla, sin depender solo del `disabled` del input. "Eliminar mi
- * cuenta" pasa por fn_cliente_elimina_su_cuenta() (RPC), el único camino
- * habilitado para apagar `activo` — un UPDATE directo nunca lo logra.
+ * cuenta" pasa por fn_cliente_desvincula_restaurante() (RPC), el único
+ * camino habilitado para apagar `activo` — un UPDATE directo nunca lo logra.
+ * Esa misma RPC archiva el saldo a 0 vía el ledger (nunca con un UPDATE
+ * directo sobre saldo_puntos) y borra el vínculo de dispositivo de este
+ * restaurante para detener sus alertas de proximidad.
  *
  * Props:
  *   clienteId     → id de la fila en `clientes` para esta sede.
+ *   restauranteId → UUID real del restaurante de esta sede (sedeActual.restaurante_id
+ *                   en App.jsx). "Eliminar mi cuenta" es, por diseño, una baja
+ *                   POR RESTAURANTE (ver el propio texto del modal más abajo:
+ *                   "tu perfil de fidelización EN ESTE restaurante") — se envía
+ *                   a fn_cliente_desvincula_restaurante(p_restaurante_id), la
+ *                   misma RPC que usa "No seguir este restaurante" en
+ *                   BuscadorRestaurantes.jsx. Un cliente inscrito en varios
+ *                   restaurantes conserva sus otros vínculos intactos.
  *   nombreCliente → nombre ya conocido por App.jsx (fallback mientras carga).
  *   session       → session de Supabase Auth (App.jsx la mantiene via
  *                   onAuthStateChange) — se usa para auth.uid() (ruta del
@@ -72,7 +83,7 @@ function soloDigitosLocales(telefono) {
 
 const hoyISO = () => new Date().toISOString().slice(0, 10);
 
-export function CuentaScreen({ clienteId, nombreCliente, session, onLogout }) {
+export function CuentaScreen({ clienteId, restauranteId, nombreCliente, session, onLogout }) {
   const authUserId = session?.user?.id || null;
   const authEmail  = session?.user?.email || '';
 
@@ -283,9 +294,24 @@ export function CuentaScreen({ clienteId, nombreCliente, session, onLogout }) {
   const confirmarEliminacion = async () => {
     if (pasoEliminar === 1) { setPasoEliminar(2); return; }
 
+    if (!restauranteId) {
+      setMensaje({ tipo: 'error', texto: 'No pudimos identificar la sede. Recarga la página e intenta de nuevo.' });
+      return;
+    }
+
     setEliminando(true);
     try {
-      const { data, error } = await supabase.rpc('fn_cliente_elimina_su_cuenta');
+      // FIX: antes llamaba a fn_cliente_elimina_su_cuenta() (sin restaurante),
+      // que desactivaba TODAS las filas del cliente a la vez con un
+      // `RETURNING ... INTO` escalar — cualquier cliente inscrito en 2+
+      // restaurantes hacía que ese UPDATE multi-fila lanzara un error de
+      // Postgres en vez de eliminar nada. Este botón, por su propio texto
+      // ("tu perfil de fidelización EN ESTE restaurante"), siempre fue una
+      // baja por sede — ahora usa la RPC scoped a p_restaurante_id, la misma
+      // que "No seguir este restaurante" en BuscadorRestaurantes.jsx.
+      const { data, error } = await supabase.rpc('fn_cliente_desvincula_restaurante', {
+        p_restaurante_id: restauranteId,
+      });
       if (error) throw error;
       if (!data?.ok) {
         setMensaje({ tipo: 'error', texto: 'No se pudo eliminar tu cuenta. Intenta de nuevo.' });

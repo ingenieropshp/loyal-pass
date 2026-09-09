@@ -32,6 +32,12 @@ export const BuscadorRestaurantes = ({ session, onLogout }) => {
   // datos enriquecidos del cliente por sede: { [restauranteId]: { puntos, ciclos, nombre } }
   const [datosPorSede, setDatosPorSede] = useState({});
 
+  // Desvinculación voluntaria de un restaurante puntual ("No seguir este
+  // restaurante") — ver fn_cliente_desvincula_restaurante en Supabase.
+  const [restauranteADesvincular, setRestauranteADesvincular] = useState(null); // { id, nombre } | null
+  const [desvinculando, setDesvinculando] = useState(false);
+  const [errorDesvinculo, setErrorDesvinculo] = useState('');
+
   useEffect(() => {
     const cargar = async () => {
       setCargando(true);
@@ -54,7 +60,14 @@ export const BuscadorRestaurantes = ({ session, onLogout }) => {
           const { data: clientesData, error: errCli } = await supabase
             .from('clientes')
             .select('id, nombre, saldo_puntos, ciclos_completados, restaurante_id')
-            .eq('auth_user_id', session.user.id);
+            .eq('auth_user_id', session.user.id)
+            // FIX: sin este filtro, un restaurante del que el usuario se
+            // desvinculó voluntariamente (fn_cliente_desvincula_restaurante
+            // → activo=false) volvía a aparecer en "Mis restaurantes" en
+            // cada recarga — la fila de `clientes` sigue existiendo (ahora
+            // en 0 pts), solo queda desactivada. "activo=true" es lo que
+            // realmente define pertenencia vigente a la sede.
+            .eq('activo', true);
           if (errCli) throw errCli;
 
           const mapa = {};
@@ -89,6 +102,51 @@ export const BuscadorRestaurantes = ({ session, onLogout }) => {
   //     muestra primero "Crea tu perfil" para que decida, con control
   //     total, si quiere unirse a este restaurante.
   const irA = (nombre) => { window.location.href = `/?r=${encodeURIComponent(nombre)}`; };
+
+  // ── Desvincular voluntariamente de un restaurante ("No seguir este
+  // restaurante") ──────────────────────────────────────────────────────────
+  const abrirModalDesvincular = (e, restaurante) => {
+    e.stopPropagation(); // no navegar a la sede: la tarjeta completa es clicable
+    e.preventDefault();
+    setErrorDesvinculo('');
+    setRestauranteADesvincular(restaurante);
+  };
+
+  const cerrarModalDesvincular = () => {
+    if (desvinculando) return; // evita cerrarlo a mitad de la operación
+    setRestauranteADesvincular(null);
+    setErrorDesvinculo('');
+  };
+
+  const confirmarDesvincular = async () => {
+    if (!restauranteADesvincular) return;
+    setDesvinculando(true);
+    setErrorDesvinculo('');
+    try {
+      const { data, error } = await supabase.rpc('fn_cliente_desvincula_restaurante', {
+        p_restaurante_id: restauranteADesvincular.id,
+      });
+      if (error) throw error;
+      if (!data?.ok) {
+        setErrorDesvinculo('No pudimos desvincularte de este restaurante. Intenta de nuevo.');
+        setDesvinculando(false);
+        return;
+      }
+      // Lo quita de "Mis restaurantes" de inmediato — sin esto seguiría
+      // viéndose hasta la próxima recarga completa.
+      setDatosPorSede((prev) => {
+        const copia = { ...prev };
+        delete copia[restauranteADesvincular.id];
+        return copia;
+      });
+      setRestauranteADesvincular(null);
+    } catch (err) {
+      console.error('[BuscadorRestaurantes] Error al desvincular restaurante:', err);
+      setErrorDesvinculo('Hubo un problema al desvincularte. Intenta de nuevo.');
+    } finally {
+      setDesvinculando(false);
+    }
+  };
 
   const filtrados = restaurantes.filter(r =>
     r.nombre?.toLowerCase().includes(busqueda.trim().toLowerCase())
@@ -151,7 +209,14 @@ export const BuscadorRestaurantes = ({ session, onLogout }) => {
               const datos = datosPorSede[r.id];
               const nivel = datos ? calcularNivel(datos.puntos) : null;
               return (
-                <button key={r.id} onClick={() => irA(r.nombre)} style={{ ...styles.card, ...styles.cardMine }}>
+                <div
+                  key={r.id}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => irA(r.nombre)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') irA(r.nombre); }}
+                  style={{ ...styles.card, ...styles.cardMine }}
+                >
                   <div style={styles.cardLeft}>
                     <div style={{ ...styles.avatar, ...styles.avatarMine }}>
                       {r.nombre?.charAt(0).toUpperCase()}
@@ -168,10 +233,17 @@ export const BuscadorRestaurantes = ({ session, onLogout }) => {
                       ) : (
                         <div style={styles.badge}>✓ Inscrito · Ver mi perfil</div>
                       )}
+                      <button
+                        type="button"
+                        onClick={(e) => abrirModalDesvincular(e, r)}
+                        style={styles.linkDesvincular}
+                      >
+                        No seguir este restaurante
+                      </button>
                     </div>
                   </div>
                   <span style={styles.arrow}>→</span>
-                </button>
+                </div>
               );
             })}
           </div>
@@ -238,6 +310,37 @@ export const BuscadorRestaurantes = ({ session, onLogout }) => {
       </section>
 
       <footer style={styles.footer}>LoyalPass v2.9</footer>
+
+      {restauranteADesvincular && (
+        <div style={styles.modalOverlay} onClick={cerrarModalDesvincular}>
+          <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
+            <h3 style={styles.modalTitulo}>¿Desvincular de {restauranteADesvincular.nombre}?</h3>
+            <p style={styles.modalTexto}>
+              Al confirmar, perderás de forma permanente tus puntos acumulados en este restaurante
+              y dejarás de recibir alertas push de proximidad.
+            </p>
+            {errorDesvinculo && <div className="error-alert">⚠️ {errorDesvinculo}</div>}
+            <div style={styles.modalAcciones}>
+              <button
+                type="button"
+                onClick={cerrarModalDesvincular}
+                disabled={desvinculando}
+                style={styles.btnCancelarDorado}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={confirmarDesvincular}
+                disabled={desvinculando}
+                style={styles.btnConfirmarBaja}
+              >
+                {desvinculando ? 'Desvinculando…' : 'Confirmar baja'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -381,5 +484,91 @@ const styles = {
     opacity: 0.4,
     marginTop: 'auto',
     paddingTop: '1.5rem',
+  },
+
+  // "No seguir este restaurante" — opción sutil dentro de la tarjeta, nunca
+  // más prominente que el nombre/nivel del restaurante.
+  linkDesvincular: {
+    display: 'block',
+    marginTop: 6,
+    padding: 0,
+    background: 'none',
+    border: 'none',
+    color: 'var(--text)',
+    opacity: 0.55,
+    fontSize: '0.68rem',
+    fontFamily: 'var(--font-body)',
+    textDecoration: 'underline',
+    textDecorationColor: 'rgba(245,245,220,0.3)',
+    cursor: 'pointer',
+  },
+
+  // Modal premium de confirmación — mismo lenguaje visual que
+  // CuentaScreen.css (.cuenta-modal / .cuenta-modal-peligro /
+  // .cuenta-btn-eliminar-confirmar): fondo carbón mate, borde bronce.
+  modalOverlay: {
+    position: 'fixed',
+    inset: 0,
+    zIndex: 300,
+    background: 'rgba(0,0,0,0.6)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '1.25rem',
+  },
+  modal: {
+    width: '100%',
+    maxWidth: 420,
+    background: 'var(--luxury-dark)',
+    border: '1px solid rgba(169,105,79,0.4)',
+    borderRadius: 'var(--r-xl)',
+    padding: '1.5rem',
+    boxShadow: '0 20px 60px rgba(0,0,0,0.6)',
+  },
+  modalTitulo: {
+    fontFamily: 'var(--font-display)',
+    fontWeight: 800,
+    fontSize: '1.05rem',
+    color: 'var(--text-h)',
+    margin: '0 0 1rem',
+  },
+  modalTexto: {
+    fontSize: '0.85rem',
+    color: 'var(--text)',
+    lineHeight: 1.6,
+    margin: 0,
+  },
+  modalAcciones: {
+    display: 'flex',
+    gap: 10,
+    marginTop: '1.25rem',
+  },
+  // "Confirmar baja" — rojo bronce apagado (idéntico a
+  // .cuenta-btn-eliminar-confirmar en CuentaScreen.css).
+  btnConfirmarBaja: {
+    flex: 1,
+    padding: 12,
+    background: 'linear-gradient(135deg, #8A5236 0%, #5E3220 100%)',
+    color: '#F5E9DD',
+    border: 'none',
+    borderRadius: 'var(--r-md)',
+    fontWeight: 700,
+    fontSize: '0.85rem',
+    fontFamily: 'var(--font-body)',
+    cursor: 'pointer',
+  },
+  // "Cancelar" — dorado metálico (idéntico a .cuenta-btn-guardar).
+  btnCancelarDorado: {
+    flex: 1,
+    padding: 12,
+    background: 'var(--gold-gradient)',
+    color: '#14100A',
+    border: 'none',
+    borderRadius: 'var(--r-md)',
+    fontWeight: 800,
+    fontSize: '0.85rem',
+    fontFamily: 'var(--font-display)',
+    letterSpacing: '0.02em',
+    cursor: 'pointer',
   },
 };

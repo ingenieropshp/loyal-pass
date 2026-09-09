@@ -588,6 +588,7 @@ function App() {
         ) : tabActiva === 'cuenta' ? (
           <CuentaScreen
             clienteId={clienteId}
+            restauranteId={sedeActual?.restaurante_id}
             nombreCliente={nombreCliente}
             session={session}
             onLogout={handleLogout}
