@@ -288,6 +288,13 @@ export const UserDashboard = ({
         isOpen={mostrarRedimir}
         onClose={() => setMostrarRedimir(false)}
         cliente={cliente}
+        // FIX: antes este modal leía cliente.saldo_puntos (fresco solo al
+        // montar el dashboard). Le pasamos `puntos` — el mismo valor que ya
+        // se mantiene al día por la suscripción Realtime de arriba — para
+        // que si el admin suma o redime puntos con el cliente ya adentro de
+        // este modal, el saldo que ve y contra el que se valida sea el real,
+        // no uno viejo.
+        saldoActual={puntos}
         restauranteId={restauranteId}
         montoMinimoRedencion={montoMinimoRedencion}
         onRedencionExitosa={(nuevoSaldo) => {

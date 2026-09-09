@@ -22,6 +22,19 @@ export default function RedimirPuntosModal({
   isOpen,
   onClose,
   cliente,        // objeto cliente ya cargado: { id, restaurante_id, nombre, puntos, cedula }
+  // FIX (saldo desactualizado en este modal): UserDashboard.jsx mantiene
+  // `cliente` fresco solo al montar el componente — el saldo EN VIVO (el
+  // mismo que ya se actualiza solo por Realtime en la tarjeta principal,
+  // ver la suscripción a `transacciones_puntos` en UserDashboard.jsx) vive
+  // en otra variable (`puntos`/`puntosVigentes`), no en `cliente.saldo_puntos`.
+  // Antes este modal leía directo de `cliente.saldo_puntos`, así que si el
+  // admin sumaba o redimía puntos MIENTRAS el cliente tenía la app abierta,
+  // la tarjeta principal sí se actualizaba sola pero este modal seguía
+  // mostrando (y validando contra) el saldo viejo hasta un refresh manual.
+  // `saldoActual` ahora es un prop explícito — UserDashboard.jsx pasa el
+  // mismo valor en vivo que ya usa para la tarjeta — con el prop `cliente`
+  // como respaldo solo por si algún otro caller todavía no lo pasa.
+  saldoActual: saldoActualProp,
   restauranteId,  // sede activa — necesario para no tocar otras sedes del mismo cliente
   montoMinimoRedencion = 15000, // configuracion_restaurantes.monto_minimo_redencion
   onRedencionExitosa,
@@ -33,7 +46,7 @@ export default function RedimirPuntosModal({
 
   if (!isOpen) return null;
 
-  const saldoActual = cliente?.saldo_puntos || 0;
+  const saldoActual = saldoActualProp ?? cliente?.saldo_puntos ?? 0;
 
   const handleRedencion = async (e) => {
     e.preventDefault();
