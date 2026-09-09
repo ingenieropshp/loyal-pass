@@ -84,6 +84,25 @@
 //     notificación, sin depender de un `click_action` nativo (ese campo
 //     apuntaría a una Activity de Android que esta app no tiene registrada
 //     — el ruteo real se resuelve en JS con este `data`).
+//
+// v6 (validación de horario comercial — Colombia, America/Bogota — pedido
+// explícito del usuario): el push de "ganaste puntos" por geocerca se
+// disparaba a cualquier hora, incluida la madrugada, si el cliente pasaba
+// cerca del local (por ejemplo yendo de camino a otro lado). Ahora SOLO se
+// envía el push si el evento cae dentro de una ventana comercial
+// (almuerzo 11:30–15:00 o cena 18:30–22:30, hora de Bogotá). Fuera de esas
+// ventanas el evento se sigue registrando igual — fn_evento_geocerca (más
+// abajo, en el handler principal) corre SIEMPRE y sigue acreditando los
+// puntos sin condición — solo se omite la notificación push para no
+// molestar al cliente de noche. No existe todavía una columna de horario
+// por restaurante en `configuracion_restaurantes` (se revisó el esquema
+// real antes de escribir esto), así que la ventana queda fija para todos
+// los restaurantes; si más adelante se necesita un horario configurable
+// por local, esto es lo primero que habría que parametrizar ahí.
+//
+// Además, dentro de horario, el mensaje del push ahora es contextual según
+// la franja (un texto para almuerzo, otro para cena) en vez del genérico
+// "Se acreditaron X puntos..." de antes.
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { SignJWT, importPKCS8 } from 'https://esm.sh/jose@5';
 
@@ -115,6 +134,52 @@ interface PayloadGeofence {
 // ── Canal de notificación nativo del cliente — DEBE coincidir carácter por
 // carácter con CANAL_ID_GEOFENCE en useGeofencing.js / usePushNotifications.js.
 const CANAL_ID_GEOFENCE = 'geofence-alerts';
+
+// ── v6: ventana comercial (hora de Bogotá) ────────────────────────────────
+// Se trabaja en "minutos del día" (0–1439) en vez de comparar solo la hora
+// entera, porque las ventanas empiezan/terminan en la media hora (11:30,
+// 18:30, 22:30) — comparar solo `hora >= 11` incluiría por error 11:00–11:29.
+type FranjaHoraria = 'almuerzo' | 'cena' | null;
+
+const INICIO_ALMUERZO_MIN = 11 * 60 + 30; // 11:30
+const FIN_ALMUERZO_MIN    = 15 * 60;      // 15:00
+const INICIO_CENA_MIN     = 18 * 60 + 30; // 18:30
+const FIN_CENA_MIN        = 22 * 60 + 30; // 22:30
+
+function obtenerFranjaHorariaColombia(): FranjaHoraria {
+  const partes = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Bogota',
+    hour12: false,
+    hour: '2-digit',
+    minute: '2-digit',
+  }).formatToParts(new Date());
+
+  const hora = Number(partes.find((p) => p.type === 'hour')?.value ?? '0');
+  const minuto = Number(partes.find((p) => p.type === 'minute')?.value ?? '0');
+  const minutosDelDia = hora * 60 + minuto;
+
+  if (minutosDelDia >= INICIO_ALMUERZO_MIN && minutosDelDia < FIN_ALMUERZO_MIN) return 'almuerzo';
+  if (minutosDelDia >= INICIO_CENA_MIN && minutosDelDia < FIN_CENA_MIN) return 'cena';
+  return null;
+}
+
+// ── v6: mensaje contextual del push según la franja horaria ──────────────
+function mensajePorFranja(
+  franja: Exclude<FranjaHoraria, null>,
+  nombreRestaurante: string,
+  puntos: number,
+): { titulo: string; cuerpo: string } {
+  if (franja === 'almuerzo') {
+    return {
+      titulo: `📍 ¡Hora de almorzar en ${nombreRestaurante}!`,
+      cuerpo: `Tienes ${puntos} puntos acumulados para disfrutar hoy.`,
+    };
+  }
+  return {
+    titulo: `🌙 Termina tu día en ${nombreRestaurante}`,
+    cuerpo: `¡Acumula puntos con tu visita hoy! Recién ganaste ${puntos} pts.`,
+  };
+}
 
 function decodificarServiceAccount(raw: string): Record<string, string> {
   const valor = raw.trim();
@@ -193,6 +258,15 @@ async function enviarPushFCM(
 
 async function notificarBonoGeocerca(deviceId: string, restauranteId: string, clienteId: string, puntos: number): Promise<void> {
   try {
+    // v6: fuera de horario comercial no se envía push — los puntos ya
+    // quedaron acreditados por fn_evento_geocerca en el handler principal,
+    // esto solo decide si se molesta o no al cliente con una notificación.
+    const franja = obtenerFranjaHorariaColombia();
+    if (!franja) {
+      console.log('[geofence-webhook] Fuera de horario comercial (almuerzo/cena) — se omite el push de FCM. Puntos ya acreditados en el Ledger.');
+      return;
+    }
+
     const { data: filaCliente, error: errCliente } = await supabaseAdmin
       .from('clientes')
       .select('notif_proximidad_activa')
@@ -233,13 +307,15 @@ async function notificarBonoGeocerca(deviceId: string, restauranteId: string, cl
       .maybeSingle();
     const nombreRestaurante = restaurante?.nombre ?? 'el restaurante';
 
+    const { titulo, cuerpo } = mensajePorFranja(franja, nombreRestaurante, puntos);
+
     const accessToken = await obtenerTokenAccesoFCM(serviceAccountRaw);
     const resultado = await enviarPushFCM(
       accessToken,
       projectId,
       tokenRow.fcm_token,
-      `¡Ganaste ${puntos} puntos! 🎉`,
-      `Se acreditaron ${puntos} puntos por tu visita a ${nombreRestaurante}.`,
+      titulo,
+      cuerpo,
       {
         tipo: 'GEOCERCA_PROXIMIDAD',
         restaurante_id: restauranteId,
@@ -292,6 +368,9 @@ Deno.serve(async (req) => {
     return jsonResponse({ ok: false, motivo: 'cliente_no_resuelto' }, 404);
   }
 
+  // Nota (v6): esta llamada NO cambia — el evento de geocerca se registra y
+  // los puntos se acreditan SIEMPRE, sin importar la hora. El filtro de
+  // horario comercial solo aplica más abajo, a la notificación push.
   const { data, error } = await supabaseAdmin.rpc('fn_evento_geocerca', {
     p_cliente_id: dispositivo.cliente_id,
     p_restaurante_id: restauranteId,
