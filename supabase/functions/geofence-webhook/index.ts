@@ -57,6 +57,33 @@
 // enviar el push se consulta `clientes.notif_proximidad_activa` y, si el
 // cliente lo desactivó desde su perfil, se omite el envío (los puntos se
 // siguen acreditando igual — ver el comentario de notificarBonoGeocerca).
+//
+// v5 (payload de alta prioridad + canal + datos de ruteo — configuración
+// completa de push por geocerca):
+//   - `android.priority: 'high'` explícito: aunque un mensaje CON bloque
+//     `notification` ya usa prioridad alta por defecto en FCM, se deja
+//     explícito para que Android despierte el dispositivo y muestre la
+//     notificación emergente (heads-up) incluso en ahorro de batería, sin
+//     depender de un comportamiento implícito de la API.
+//   - `android.notification.channel_id`: se usa 'geofence-alerts' (con
+//     GUION, no guion bajo) — es el MISMO canal que useGeofencing.js ya
+//     crea del lado del cliente para las notificaciones locales de
+//     geocerca (ver CANAL_ID_GEOFENCE). Los IDs de canal de Android son
+//     case/char-sensitive y compartidos a nivel de sistema operativo entre
+//     @capacitor/local-notifications y @capacitor/push-notifications: si
+//     este valor no coincide EXACTO con el canal ya creado en el
+//     dispositivo, Android descarta la notificación en silencio (no hay
+//     error visible, simplemente no aparece). Ver usePushNotifications.js
+//     para el `createChannel` del lado nativo.
+//   - `android.notification.default_vibrate_timings: true`: patrón de
+//     vibración por defecto del sistema.
+//   - Se agrega `data` con `tipo`/`restaurante_id`/`puntos` (todos como
+//     string — FCM exige que los valores de `data` sean strings) para que
+//     el listener `pushNotificationActionPerformed` del cliente pueda
+//     llevar al usuario directo a la sede correspondiente al tocar la
+//     notificación, sin depender de un `click_action` nativo (ese campo
+//     apuntaría a una Activity de Android que esta app no tiene registrada
+//     — el ruteo real se resuelve en JS con este `data`).
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { SignJWT, importPKCS8 } from 'https://esm.sh/jose@5';
 
@@ -66,10 +93,6 @@ const CORS_HEADERS = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
-// Helper para no repetir `{ ...CORS_HEADERS, 'Content-Type': 'application/json' }`
-// en cada return — TODA respuesta (éxito o error) necesita las cabeceras CORS,
-// no solo el preflight: el navegador también revisa Access-Control-Allow-Origin
-// en la respuesta real, no solo en el OPTIONS.
 function jsonResponse(body: unknown, status: number): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -83,19 +106,16 @@ const supabaseAdmin = createClient(
 );
 
 interface PayloadGeofence {
-  identifier: string;               // restaurante_id (ver mapearAComercios en useGeofencing.js)
+  identifier: string;
   transition?: 'enter' | 'exit';
   enter?: boolean;
   payload?: { deviceId?: string };
 }
 
-// ── FCM (HTTP v1) — mismo mecanismo que alertas-vencimiento-puntos/index.ts:
-// JWT firmado con la cuenta de servicio de Firebase, canjeado por un
-// access_token OAuth2. Se duplica acá (en vez de importar desde la otra
-// función) porque cada Edge Function de Supabase se despliega y empaqueta
-// de forma aislada — no comparten módulos entre sí a menos que se use un
-// import_map con un archivo compartido, que este proyecto no tiene
-// configurado todavía.
+// ── Canal de notificación nativo del cliente — DEBE coincidir carácter por
+// carácter con CANAL_ID_GEOFENCE en useGeofencing.js / usePushNotifications.js.
+const CANAL_ID_GEOFENCE = 'geofence-alerts';
+
 function decodificarServiceAccount(raw: string): Record<string, string> {
   const valor = raw.trim();
   if (valor.startsWith('{')) return JSON.parse(valor);
@@ -140,6 +160,7 @@ async function enviarPushFCM(
   tokenDispositivo: string,
   titulo: string,
   cuerpo: string,
+  datos: Record<string, string>,
 ) {
   const resp = await fetch(
     `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`,
@@ -153,12 +174,15 @@ async function enviarPushFCM(
         message: {
           token: tokenDispositivo,
           notification: { title: titulo, body: cuerpo },
-          // Sonido predeterminado del sistema al recibir el push (Android).
-          // Ver nota técnica arriba del archivo sobre por qué va acá y no
-          // dentro de `notification`.
           android: {
-            notification: { sound: 'default' },
+            priority: 'high',
+            notification: {
+              sound: 'default',
+              channel_id: CANAL_ID_GEOFENCE,
+              default_vibrate_timings: true,
+            },
           },
+          data: datos,
         },
       }),
     },
@@ -167,17 +191,6 @@ async function enviarPushFCM(
   return { ok: resp.ok, status: resp.status, data };
 }
 
-// Busca el token FCM del dispositivo y, si existe, envía el push del bono de
-// geocerca. Nunca lanza: cualquier error queda solo en logs, porque los
-// puntos ya se acreditaron en fn_evento_geocerca antes de llegar acá — un
-// fallo de push jamás debe reflejarse como un error del webhook.
-//
-// v4 (preferencia de notificación del cliente — CuentaScreen.jsx, toggle
-// "Proximidad GPS"): antes de mandar el push se revisa
-// `clientes.notif_proximidad_activa`. Si el cliente lo apagó, los puntos
-// se acreditan exactamente igual (eso ya pasó en fn_evento_geocerca, antes
-// de llegar a esta función) — el toggle solo controla si se le avisa por
-// push, nunca si gana los puntos.
 async function notificarBonoGeocerca(deviceId: string, restauranteId: string, clienteId: string, puntos: number): Promise<void> {
   try {
     const { data: filaCliente, error: errCliente } = await supabaseAdmin
@@ -188,8 +201,6 @@ async function notificarBonoGeocerca(deviceId: string, restauranteId: string, cl
 
     if (errCliente) {
       console.error('[geofence-webhook] Error consultando preferencia de notificación:', errCliente.message);
-      // Ante la duda, seguimos e intentamos avisar — más vale un push de
-      // más que dejar a alguien sin su alerta por un error de lectura.
     } else if (filaCliente?.notif_proximidad_activa === false) {
       return;
     }
@@ -205,9 +216,6 @@ async function notificarBonoGeocerca(deviceId: string, restauranteId: string, cl
       return;
     }
     if (!tokenRow?.fcm_token) {
-      // Dispositivo sin token FCM registrado (ej. nunca abrió la app o
-      // rechazó el permiso de notificaciones) — no es un error, simplemente
-      // no hay a quién avisarle desde el backend.
       return;
     }
 
@@ -232,6 +240,11 @@ async function notificarBonoGeocerca(deviceId: string, restauranteId: string, cl
       tokenRow.fcm_token,
       `¡Ganaste ${puntos} puntos! 🎉`,
       `Se acreditaron ${puntos} puntos por tu visita a ${nombreRestaurante}.`,
+      {
+        tipo: 'GEOCERCA_PROXIMIDAD',
+        restaurante_id: restauranteId,
+        puntos: String(puntos),
+      },
     );
 
     if (!resultado.ok) {
@@ -243,9 +256,6 @@ async function notificarBonoGeocerca(deviceId: string, restauranteId: string, cl
 }
 
 Deno.serve(async (req) => {
-  // Preflight: el navegador manda esto ANTES del POST real para preguntar
-  // "¿me dejas hacer esta petición cross-origin?". Debe responder rápido,
-  // sin cuerpo, con las cabeceras CORS — 204 No Content es lo estándar.
   if (req.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: CORS_HEADERS });
   }
@@ -271,11 +281,6 @@ Deno.serve(async (req) => {
     return jsonResponse({ ok: false, motivo: 'payload_incompleto' }, 400);
   }
 
-  // El deviceId identifica el dispositivo, no directamente al cliente. Es
-  // multi-tenant por sede (el mismo dispositivo puede tener una fila de
-  // `clientes` distinta por restaurante), así que se resuelve por el par
-  // (device_id, restaurante_id) — ver migracion_fidelizacion.sql y el
-  // upsert en useGeofencing.js (app cliente, en foreground).
   const { data: dispositivo, error: errDispositivo } = await supabaseAdmin
     .from('dispositivos_clientes')
     .select('cliente_id')
@@ -298,11 +303,6 @@ Deno.serve(async (req) => {
     return jsonResponse({ ok: false, motivo: 'error_interno' }, 500);
   }
 
-  // Se espera (await) el envío del push antes de responder: es un webhook
-  // de background disparado por el SO, no una UI que el usuario esté
-  // mirando, así que no hay razón para arriesgar una respuesta "bonificado:
-  // true" sin haber intentado avisarle de verdad. Cualquier error queda
-  // contenido dentro de notificarBonoGeocerca (nunca lanza).
   if (data?.bonificado && typeof data?.puntos === 'number' && data.puntos > 0) {
     await notificarBonoGeocerca(deviceId, restauranteId, dispositivo.cliente_id, data.puntos);
   }

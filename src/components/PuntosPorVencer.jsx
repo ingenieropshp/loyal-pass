@@ -2,23 +2,22 @@
  * PuntosPorVencer.jsx
  * ────────────────────────────────────────────────────────────────────────
  * Bloque informativo "tus puntos vencen en X días" — parte del rediseño
- * visual "Luxury Charcoal & Gold". El usuario pidió estilizar este bloque
- * (junto con la tarjeta de meta de 15.000 puntos, ver BarraProgresoPuntos)
- * pero no existía todavía como pieza de UI en la app del cliente: la regla
- * de negocio de vigencia de 90 días ya vive en la base de datos
- * (`transacciones_puntos.fecha_vencimiento`, consolidación FIFO) y solo se
- * mencionaba en el texto de Términos y Condiciones (RegistrationForm.jsx).
+ * visual "Luxury Charcoal & Gold".
  *
- * IMPORTANTE — esto es SOLO una lectura de datos que ya existen, para
- * mostrarle al cliente algo que la base de datos ya calcula. No agrega
- * ninguna tabla, columna, RPC ni regla de acumulación/vencimiento nueva:
- * simplemente consulta el lote de puntos más próximo a vencer (columnas
- * reales de `transacciones_puntos`: puntos_restantes, fecha_vencimiento —
- * no existe una columna `vencido` en el esquema documentado del proyecto,
- * así que el filtro de "no vencido todavía" se hace comparando
- * fecha_vencimiento contra la fecha de hoy) y lo muestra. Si no hay ningún
- * lote pendiente por vencer, el componente no renderiza nada (return
- * null) — no inventa datos.
+ * FIX (banner 100% dinámico vía RPC, en vez de calcularlo en el frontend):
+ * la versión anterior leía UNA sola fila de `transacciones_puntos` (la de
+ * fecha_vencimiento más próxima) y mostraba su `puntos_restantes` tal cual.
+ * Eso era un bug real de fondo: como la consolidación mensual agrupa TODO
+ * lo ganado en un mes calendario bajo la MISMA fecha_vencimiento (bono de
+ * bienvenida + consumos + geocerca, cada uno su propia fila en el Ledger),
+ * si el cliente tenía más de una fila con esa fecha el banner solo contaba
+ * una de ellas — mostraba menos puntos de los que realmente iban a vencer.
+ * Ahora la cuenta se hace en la base de datos, vía la función
+ * `fn_obtener_puntos_por_vencer(p_cliente_id, p_restaurante_id)`, que SUMA
+ * todas las filas del lote más próximo (además de calcular los días
+ * restantes con la hora real del servidor, no la del teléfono del
+ * cliente). El frontend ya no repite esa lógica de negocio — solo pinta lo
+ * que la función devuelve.
  *
  * Reutiliza las clases .mis-puntos-card / .puntos-vencer-* definidas en
  * BarraProgresoPuntos.css (mismo tratamiento "tarjeta premium negra con
@@ -29,49 +28,38 @@
  * REACTIVIDAD (Supabase Realtime): este componente hace su propia consulta,
  * separada de la de UserDashboard.jsx/cargarPuntos — así que un refresh de
  * saldo en el dashboard no le llega solo. Se suscribe él mismo a los INSERT
- * de `transacciones_puntos` de este cliente y vuelve a pedir el lote más
- * próximo a vencer cuando llega uno, para que "X pts vencen pronto" quede
- * al día sin recargar la pantalla (ej. si el nuevo consumo generó un lote
- * que vence antes que el que se estaba mostrando).
+ * de `transacciones_puntos` de este cliente y vuelve a llamar la RPC cuando
+ * llega uno, para que "X pts vencen pronto" quede al día sin recargar la
+ * pantalla (ej. si el nuevo consumo generó un lote que vence antes que el
+ * que se estaba mostrando).
  */
 
 import { useEffect, useState } from 'react';
 import { supabase } from '../services/supabaseClient';
 
-const DIA_MS = 1000 * 60 * 60 * 24;
 const UMBRAL_URGENTE_DIAS = 7; // ≤ 7 días: acento rojo en vez de dorado
 
 export function PuntosPorVencer({ clienteId, restauranteId }) {
-  const [lote, setLote] = useState(null); // { puntos_restantes, fecha_vencimiento } | null
+  // { puntos_por_vencer, dias_restantes, fecha_vencimiento } | null mientras carga
+  const [datos, setDatos] = useState(null);
   const [cargando, setCargando] = useState(true);
 
   useEffect(() => {
-    if (!clienteId) { setCargando(false); return; }
+    if (!clienteId || !restauranteId) { setCargando(false); return; }
 
     let cancelado = false;
     const cargar = async () => {
       setCargando(true);
-      const hoy = new Date().toISOString().slice(0, 10); // YYYY-MM-DD, comparable con fecha_vencimiento (DATE)
-
-      let query = supabase
-        .from('transacciones_puntos')
-        .select('puntos_restantes, fecha_vencimiento')
-        .eq('cliente_id', clienteId)
-        .gt('puntos_restantes', 0)
-        .not('fecha_vencimiento', 'is', null)
-        .gte('fecha_vencimiento', hoy) // solo lotes que todavía no vencieron
-        .order('fecha_vencimiento', { ascending: true })
-        .limit(1);
-
-      if (restauranteId) query = query.eq('restaurante_id', restauranteId);
-
-      const { data, error } = await query.maybeSingle();
+      const { data, error } = await supabase.rpc('fn_obtener_puntos_por_vencer', {
+        p_cliente_id: clienteId,
+        p_restaurante_id: restauranteId,
+      });
       if (cancelado) return;
       if (error) {
         console.warn('[PuntosPorVencer] No se pudo cargar el próximo vencimiento:', error.message);
-        setLote(null);
+        setDatos(null);
       } else {
-        setLote(data || null);
+        setDatos(data || null);
       }
       setCargando(false);
     };
@@ -101,12 +89,15 @@ export function PuntosPorVencer({ clienteId, restauranteId }) {
     };
   }, [clienteId, restauranteId]);
 
-  if (cargando || !lote) return null;
+  if (cargando) return null;
 
-  const diasRestantes = Math.max(
-    0,
-    Math.ceil((new Date(lote.fecha_vencimiento) - new Date()) / DIA_MS)
-  );
+  // Sin lote por vencer (RPC devolvió puntos_por_vencer = 0, o falló la
+  // carga): no mostramos la tarjeta — un estado neutral aquí sería más
+  // ruido que información útil, y coincide con el resto de tarjetas
+  // condicionales de esta pantalla (ej. GuiaPermisosBanner).
+  if (!datos || !datos.puntos_por_vencer) return null;
+
+  const { puntos_por_vencer: puntosPorVencer, dias_restantes: diasRestantes } = datos;
   const urgente = diasRestantes <= UMBRAL_URGENTE_DIAS;
 
   return (
@@ -114,7 +105,7 @@ export function PuntosPorVencer({ clienteId, restauranteId }) {
       <div className="puntos-vencer-icono">⏳</div>
       <div className="puntos-vencer-texto">
         <p className="puntos-vencer-cifra">
-          <b>{lote.puntos_restantes.toLocaleString('es-CO')} pts</b> vencen pronto
+          <b>{puntosPorVencer.toLocaleString('es-CO')} pts</b> vencen pronto
         </p>
         <p className="puntos-vencer-detalle">
           {diasRestantes === 0

@@ -19,8 +19,19 @@
     <!-- Android 13+ (API 33+): las notificaciones locales requieren permiso runtime -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- FIX (raíz de "No pudimos cargar los restaurantes" reapareciendo incluso
+         tras desinstalar/reinstalar): allowBackup="true" le permite a Android
+         (y en particular a MIUI/Xiaomi, más agresivo con esto) guardar una
+         copia de TODOS los datos de la app — incluyendo el localStorage con
+         la sesión de Supabase — y RESTAURARLA sola al reinstalar. Por eso
+         "desinstalar e instalar de nuevo" nunca arrancaba realmente en
+         limpio: volvía un token de sesión viejo/vencido, que fallaba al
+         intentar renovarse solo apenas se abría la app (confirmado en los
+         logs del servidor: 400 en /auth/v1/token?grant_type=refresh_token
+         seguido de 401 en otras peticiones). Con allowBackup="false", cada
+         reinstalación real arranca sin ningún dato heredado. -->
     <application
-        android:allowBackup="true"
+        android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"

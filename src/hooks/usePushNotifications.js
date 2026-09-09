@@ -24,10 +24,20 @@
  *     (ver components/PushToast.jsx) — no bloqueante, con el mismo
  *     lenguaje visual del resto de la app.
  *   - Toque sobre la notificación (segundo plano o app cerrada) → dispara
- *     'pushNotificationActionPerformed'. Se usa el `data` que manda el
- *     backend (ver geofence-webhook/index.ts) para llevar al usuario
- *     directo a la tarjeta/saldo del restaurante correspondiente, en vez
- *     de abrir la app en la pantalla que haya quedado guardada.
+ *     'pushNotificationActionPerformed'. SIEMPRE lleva al usuario directo a
+ *     la vista principal (pestaña "inicio"), que es donde vive la Tarjeta
+ *     de Membresía 3D Flip con el QR de la cédula listo para escaneo en
+ *     caja — no a "confirmar llegada" (ese flujo ya no existe, ver
+ *     UserDashboard.jsx) ni a la pantalla que haya quedado guardada de una
+ *     sesión anterior. Cubre las dos fuentes de push reales hoy:
+ *       · geofence-webhook (proximidad): manda `data.tipo = 'GEOCERCA_PROXIMIDAD'`
+ *         + `data.restaurante_id` → se usa ese restaurante_id para reabrir
+ *         la sede correcta.
+ *       · alertas-vencimiento-puntos (saldo por vencer): NO manda `data`
+ *         (solo title/body) → no hay restaurante_id que propagar, así que
+ *         se navega a "/" a secas y la app resuelve la sede con el último
+ *         escaneo persistido en localStorage (CLAVE_ESCANEO_PENDIENTE, ver
+ *         App.jsx) — igual termina en la misma Tarjeta de Membresía.
  *
  * Requiere:
  *   npm install @capacitor/push-notifications
@@ -138,14 +148,22 @@ export function usePushNotifications() {
         });
 
         // ── El usuario tocó la notificación (segundo plano o app cerrada) ──
-        // `data` viaja en el payload FCM (ver geofence-webhook/index.ts:
-        // tipo/restaurante_id/puntos) — se usa para llevarlo directo a la
-        // sede correspondiente en vez de abrir la app donde haya quedado.
+        // Deep link directo a la Tarjeta de Membresía (pestaña "inicio"):
+        // NO se filtra por `datos.tipo` porque hoy TODA notificación push
+        // real de esta app es o bien de geocerca/proximidad o bien de saldo
+        // por vencer — las dos deben abrir lo mismo. Si en el futuro se
+        // agrega un tipo de push que no deba llevar acá, este es el lugar
+        // para volver a poner un `if (datos.tipo === ...)`.
+        //
+        // `window.location.href` fuerza una recarga completa del WebView:
+        // eso reinicia `tabActiva` a su valor por defecto ('inicio' — ver
+        // App.jsx) y con eso alcanza para caer en la Tarjeta de Membresía,
+        // sin necesitar ningún estado de ruteo adicional.
         listenerAccion = await PushNotifications.addListener('pushNotificationActionPerformed', (accion) => {
           const datos = accion?.notification?.data || {};
-          if (datos.restaurante_id) {
-            window.location.href = `/?restaurante_id=${encodeURIComponent(datos.restaurante_id)}`;
-          }
+          window.location.href = datos.restaurante_id
+            ? `/?restaurante_id=${encodeURIComponent(datos.restaurante_id)}`
+            : '/';
         });
 
         await PushNotifications.register();
