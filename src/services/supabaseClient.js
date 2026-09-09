@@ -239,17 +239,48 @@ export const registrarClienteEnRestaurante = async ({
   registradoEnGeocerca = false,
   deviceId = null, // ver el upsert de dispositivos_clientes más abajo
 }) => {
-  // a) ¿Ya vinculado a este restaurante? (evita duplicados por doble clic/carrera)
+  // a) ¿Ya existe una fila para este par (auth_user_id, restaurante_id)?
+  //    - activo=true  → ya inscrito de verdad: evita duplicados por doble
+  //      clic/carrera, se devuelve tal cual.
+  //    - activo=false → se desvinculó antes (fn_cliente_desvincula_restaurante
+  //      lo dejó en activo=false y su saldo archivado en 0). NO se trata como
+  //      "ya inscrito" (mostraría su tablero viejo) ni se duplica la fila:
+  //      se reactiva vía fn_cliente_reingresa_restaurante, que además es la
+  //      barrera anti-fraude contra el doble bono de bienvenida — la columna
+  //      `bono_bienvenida_aplicado` ya quedó en true desde el primer alta, así
+  //      que el reingreso jamás vuelve a acreditar los 500 pts.
   const { data: yaExiste, error: errorExiste } = await supabase
     .from('clientes')
-    .select('id, nombre, saldo_puntos')
+    .select('id, nombre, saldo_puntos, activo')
     .eq('auth_user_id', user.id)
     .eq('restaurante_id', restauranteId)
     .maybeSingle();
   if (errorExiste) throw errorExiste;
-  if (yaExiste) {
+
+  if (yaExiste?.activo) {
     await vincularDispositivo({ deviceId, restauranteId, clienteId: yaExiste.id });
     return yaExiste;
+  }
+
+  if (yaExiste && !yaExiste.activo) {
+    const { data: reingreso, error: errorReingreso } = await supabase.rpc('fn_cliente_reingresa_restaurante', {
+      p_restaurante_id: restauranteId,
+      p_nombre: nombre,
+      p_telefono: telefono,
+      p_fecha_nacimiento: fechaNacimiento || null,
+      p_cedula: cedula || null,
+    });
+    if (errorReingreso) throw errorReingreso;
+    if (!reingreso?.ok) {
+      throw new Error('No se pudo reactivar tu inscripción anterior. Intenta de nuevo.');
+    }
+    await vincularDispositivo({ deviceId, restauranteId, clienteId: reingreso.cliente_id });
+    return {
+      id:            reingreso.cliente_id,
+      nombre:        reingreso.nombre,
+      saldo_puntos:  reingreso.saldo_puntos,
+      esReingreso:   true,
+    };
   }
 
   // b) ¿Fila vieja del registro rápido, mismo teléfono, sin auth todavía?

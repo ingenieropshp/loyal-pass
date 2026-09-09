@@ -77,6 +77,12 @@ async function obtenerPosicionActual() {
  * Props:
  *   restauranteId, nombreRestaurante, nombreCliente,
  *   clienteId, puntosActuales, onClose
+ *   esReingreso → true cuando esto no fue un registro nuevo sino la
+ *                 reactivación de una desvinculación anterior (ver
+ *                 fn_cliente_reingresa_restaurante en supabaseClient.js).
+ *                 Cambia el mensaje de bienvenida — nunca hay un segundo
+ *                 bono de bienvenida en este caso, así que no tendría
+ *                 sentido mostrar "+0 puntos de bienvenida".
  */
 export const SuccessCard = ({
   restauranteId,
@@ -84,6 +90,7 @@ export const SuccessCard = ({
   nombreCliente,
   clienteId,
   puntosActuales = 500,
+  esReingreso = false,
   onClose,
 }) => {
   // Monto mínimo de redención real de este restaurante, para el paso
@@ -122,16 +129,21 @@ export const SuccessCard = ({
       if (Notification.permission !== 'granted') return;
       try {
         const reg = await navigator.serviceWorker.ready;
-        reg.showNotification(`¡Bienvenido a ${nombreRestaurante}! 🎉`, {
-          body:    `Has ganado tus primeros ${puntosActuales} puntos. ¡Sigue visitándonos!`,
-          icon:    '/icon-192.png',
-          badge:   '/icon-72.png',
-          vibrate: [100, 50, 100],
-        });
+        reg.showNotification(
+          esReingreso ? `¡Bienvenido de vuelta a ${nombreRestaurante}! 🎉` : `¡Bienvenido a ${nombreRestaurante}! 🎉`,
+          {
+            body: esReingreso
+              ? 'Tu perfil de fidelización quedó activo de nuevo. ¡Sigue visitándonos!'
+              : `Has ganado tus primeros ${puntosActuales} puntos. ¡Sigue visitándonos!`,
+            icon:    '/icon-192.png',
+            badge:   '/icon-72.png',
+            vibrate: [100, 50, 100],
+          }
+        );
       } catch {}
     };
     enviarNotificacion();
-  }, [nombreRestaurante, puntosActuales]);
+  }, [nombreRestaurante, puntosActuales, esReingreso]);
 
   // Bono de proximidad si el registro ocurrió DENTRO del local
   // ──────────────────────────────────────────────────────────────────────
@@ -274,17 +286,32 @@ export const SuccessCard = ({
         </div>
 
         <h2 style={styles.heading}>
-          ¡Bienvenido,<br />{nombreCliente?.split(' ')[0]}!
+          {esReingreso ? (
+            <>¡Bienvenido de vuelta,<br />{nombreCliente?.split(' ')[0]}!</>
+          ) : (
+            <>¡Bienvenido,<br />{nombreCliente?.split(' ')[0]}!</>
+          )}
         </h2>
         <p style={styles.sub}>
           Ya eres parte del club <strong>{nombreRestaurante}</strong>.
         </p>
 
-        {/* Puntos ganados */}
-        <div style={styles.pointsBadge}>
-          <span style={styles.pointsNum}>+{puntosActuales}</span>
-          <span style={styles.pointsLabel}>puntos de bienvenida</span>
-        </div>
+        {/* Puntos ganados — en un reingreso nunca hay un segundo bono de
+            bienvenida (ver fn_bono_bienvenida/columna bono_bienvenida_aplicado
+            en Supabase), así que en vez del badge de "+puntos" se explica
+            que el saldo arranca en 0. */}
+        {esReingreso ? (
+          <div style={styles.pointsBadge}>
+            <span style={{ ...styles.pointsLabel, fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-h)' }}>
+              ¡Bienvenido de vuelta! Recuerda que al unirte nuevamente tu saldo inicia en 0 puntos.
+            </span>
+          </div>
+        ) : (
+          <div style={styles.pointsBadge}>
+            <span style={styles.pointsNum}>+{puntosActuales}</span>
+            <span style={styles.pointsLabel}>puntos de bienvenida</span>
+          </div>
+        )}
 
         {/* Cómo funciona */}
         <div style={styles.stepsCard}>

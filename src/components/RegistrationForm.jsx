@@ -18,8 +18,12 @@ import { getDeviceId } from '../utils/deviceId';
  *   user          → session.user de Supabase Auth (ya autenticado).
  *   restaurantId  → id del restaurante en el que se está inscribiendo.
  *   referidoPor   → nombre de quien lo invitó (query param ?ref=), si aplica.
- *   onSuccess(id, nombre, puntos) → App.jsx lo usa para pasar a la
- *                                   pantalla de bienvenida con los puntos.
+ *   onSuccess(id, nombre, puntos, esReingreso) → App.jsx lo usa para pasar a
+ *                                   la pantalla de bienvenida con los puntos.
+ *                                   esReingreso=true cuando la fila era una
+ *                                   desvinculación anterior que se reactivó
+ *                                   (ver fn_cliente_reingresa_restaurante) —
+ *                                   puntos siempre es 0 en ese caso.
  */
 export const RegistrationForm = ({ onSuccess, user, restaurantId, referidoPor, esCerca = false }) => {
   const [formData, setFormData] = useState({ nombre: '', telefono: '', fechaNacimiento: '', cedula: '' });
@@ -104,7 +108,7 @@ export const RegistrationForm = ({ onSuccess, user, restaurantId, referidoPor, e
         deviceId,
       });
 
-      onSuccess?.(cliente.id, cliente.nombre, cliente.saldo_puntos);
+      onSuccess?.(cliente.id, cliente.nombre, cliente.saldo_puntos, cliente.esReingreso === true);
     } catch (error) {
       console.error('Error en registro:', error);
       if (error?.code === '23505') {

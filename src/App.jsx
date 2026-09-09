@@ -110,6 +110,7 @@ function App() {
   const [nombreCliente,   setNombreCliente]    = useState('');
   const [puntosCliente,   setPuntosCliente]    = useState(0);
   const [isRegisteredNow, setIsRegisteredNow]  = useState(false);
+  const [esReingreso,     setEsReingreso]      = useState(false);
   const [isVerifyingUser, setIsVerifyingUser]  = useState(!!restauranteID);
   const [referidoPor,     setReferidoPor]      = useState('');
   const [sedeActual,       setSedeActual]        = useState(null);
@@ -396,13 +397,14 @@ function App() {
 
   const volverAlBuscador = () => { window.location.href = '/'; };
 
-  const handleSuccess = (nuevoId, nombre, puntos) => {
+  const handleSuccess = (nuevoId, nombre, puntos, reingreso = false) => {
     const registros = JSON.parse(localStorage.getItem('loyalpass_multisede') || '{}');
     registros[restauranteID] = nuevoId;
     localStorage.setItem('loyalpass_multisede', JSON.stringify(registros));
     setClienteId(nuevoId);
     setNombreCliente(nombre);
     setPuntosCliente(puntos);
+    setEsReingreso(reingreso);
     setIsRegisteredNow(true);
 
     // También cuenta como "llegada" — es la primera visita registrada del
@@ -551,6 +553,7 @@ function App() {
         nombreCliente={nombreCliente}
         clienteId={clienteId}
         puntosActuales={puntosCliente}
+        esReingreso={esReingreso}
         onClose={volverAlBuscador}
       />
     );

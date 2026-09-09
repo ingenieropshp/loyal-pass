@@ -28,6 +28,16 @@
  * en bistro-admin) — ese es el paso que efectivamente escribe en el Ledger
  * (`transacciones_puntos`, tipo 'canje_recompensa'). Este archivo nunca
  * toca el Ledger directamente.
+ *
+ * ── LÍMITE DE 1 CANJE POR RECOMPENSA POR CLIENTE ────────────────────────────
+ * `canjear_recompensa` ya rechaza en el backend un segundo canje de la misma
+ * recompensa (error 'RECOMPENSA_YA_RECLAMADA') consultando `cupones` — no
+ * existe una tabla `redenciones` con `recompensa_id` como se asumió al
+ * pedir esto; el catálogo de premios siempre vivió en `recompensas` +
+ * `cupones`. Aquí, en el cliente, se trae el mismo historial de `cupones`
+ * SOLO para deshabilitar visualmente la tarjeta de antemano (evitar el
+ * viaje redondo al servidor solo para enterarse de que ya no se puede) —
+ * el backend sigue siendo la fuente de verdad si de todos modos se intenta.
  */
 
 import { useEffect, useState } from 'react';
@@ -47,10 +57,48 @@ function IconoRecompensa({ tipo }) {
   return <span style={{ fontSize: '2rem', lineHeight: 1 }}>{ICONOS[tipo] ?? ICONOS.default}</span>;
 }
 
+// Mismos estados que el backend considera "ya reclamada" en canjear_recompensa
+// (activo/usado/vencido bloquean; 'cancelado' por el admin libera el cupo).
+const ESTADOS_RECLAMADA = ['activo', 'usado', 'vencido'];
+
 export function CatalogoRecompensas({ restauranteId, clienteId, puntosActuales = 0 }) {
   const [recompensas, setRecompensas] = useState([]);
   const [cargando,    setCargando]    = useState(true);
   const [seleccionada, setSeleccionada] = useState(null); // recompensa elegida → abre el modal
+  // ids de recompensas que este cliente ya reclamó alguna vez (ver ESTADOS_RECLAMADA)
+  const [reclamadas, setReclamadas] = useState(new Set());
+
+  useEffect(() => {
+    if (!clienteId) return;
+
+    const cargarReclamadas = () => {
+      supabase
+        .from('cupones')
+        .select('recompensa_id, estado')
+        .eq('cliente_id', clienteId)
+        .in('estado', ESTADOS_RECLAMADA)
+        .then(({ data, error }) => {
+          if (error) {
+            console.error('[CatalogoRecompensas] No se pudo cargar el historial de canjes:', error.message);
+            return;
+          }
+          setReclamadas(new Set((data || []).map(c => c.recompensa_id).filter(Boolean)));
+        });
+    };
+    cargarReclamadas();
+
+    // Tiempo real: si se cancela un cupón (el admin le da otra oportunidad)
+    // o se confirma uno nuevo desde otra pestaña, el catálogo se actualiza solo.
+    const canal = supabase
+      .channel(`cupones-catalogo-${clienteId}`)
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'cupones', filter: `cliente_id=eq.${clienteId}` },
+        cargarReclamadas
+      )
+      .subscribe();
+
+    return () => supabase.removeChannel(canal);
+  }, [clienteId]);
 
   useEffect(() => {
     if (!restauranteId) return;
@@ -138,25 +186,41 @@ export function CatalogoRecompensas({ restauranteId, clienteId, puntosActuales =
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
         {recompensas.map(r => {
+          const reclamada  = reclamadas.has(r.id);
           const faltan     = Math.max(0, r.puntos_requeridos - puntosActuales);
-          const disponible = faltan === 0;
+          const disponible = faltan === 0 && !reclamada;
 
           return (
             <div
               key={r.id}
               onClick={() => disponible && setSeleccionada(r)}
               style={{
+                position:     'relative',
                 padding:      '16px 14px',
                 borderRadius: 16,
                 background:   'var(--bg-card, #1E1E1E)',
                 border:       `1px solid ${disponible ? 'rgba(212,175,55,0.55)' : 'var(--luxury-bronze, #4A3B2C)'}`,
                 boxShadow:    disponible ? '0 0 0 1px rgba(212,175,55,0.15), 0 6px 16px rgba(212,175,55,0.12)' : 'none',
                 cursor:       disponible ? 'pointer' : 'default',
+                opacity:      reclamada ? 0.75 : 1,
                 display:      'flex',
                 flexDirection: 'column',
                 gap: 6,
               }}
             >
+              {reclamada && (
+                <span style={{
+                  position: 'absolute', top: 8, right: 8,
+                  padding: '2px 8px', borderRadius: 99,
+                  background: 'rgba(255,255,255,0.08)',
+                  border: '1px solid rgba(255,255,255,0.14)',
+                  color: '#9A9A9A', fontSize: '0.6rem', fontWeight: 700,
+                  letterSpacing: '0.02em',
+                }}>
+                  Límite: 1 por cliente
+                </span>
+              )}
+
               <IconoRecompensa tipo={r.tipo} />
 
               <p style={{
@@ -178,7 +242,17 @@ export function CatalogoRecompensas({ restauranteId, clienteId, puntosActuales =
 
               {/* Botón de estado — solo visual, el click real es en toda la tarjeta */}
               <div style={{ marginTop: 8 }}>
-                {disponible ? (
+                {reclamada ? (
+                  <span style={{
+                    display: 'block', textAlign: 'center',
+                    padding: '9px 10px', borderRadius: 10,
+                    background: '#1A1A1A', // gris carbón apagado — nunca dorado ni clickeable
+                    color: '#6B6B6B', fontWeight: 700, fontSize: '0.78rem',
+                    border: '1px solid rgba(255,255,255,0.06)',
+                  }}>
+                    Reclamada ✓
+                  </span>
+                ) : disponible ? (
                   <span style={{
                     display: 'block', textAlign: 'center',
                     padding: '9px 10px', borderRadius: 10,
@@ -208,13 +282,19 @@ export function CatalogoRecompensas({ restauranteId, clienteId, puntosActuales =
         recompensa={seleccionada}
         clienteId={clienteId}
         onCerrar={() => setSeleccionada(null)}
+        onCanjeConfirmado={(recompensaId) => {
+          // Optimista: la suscripción en tiempo real también lo confirmará,
+          // pero esto evita que la tarjeta siga "canjeable" un instante
+          // mientras llega el evento.
+          setReclamadas(prev => new Set(prev).add(recompensaId));
+        }}
       />
     </div>
   );
 }
 
 // ── Modal de canje: genera el código de 6 dígitos vía canjear_recompensa ────
-function ModalCanje({ recompensa, clienteId, onCerrar }) {
+function ModalCanje({ recompensa, clienteId, onCerrar, onCanjeConfirmado }) {
   const [procesando, setProcesando] = useState(false);
   const [cupon,       setCupon]     = useState(null);
   const [errorMsg,    setErrorMsg]  = useState(null);
@@ -237,12 +317,14 @@ function ModalCanje({ recompensa, clienteId, onCerrar }) {
       });
       if (error) throw error;
       setCupon(data);
+      onCanjeConfirmado?.(recompensa.id);
     } catch (err) {
       const legibles = {
         PUNTOS_INSUFICIENTES:       'No tienes suficientes puntos para este premio.',
         RECOMPENSA_NO_DISPONIBLE:   'Este premio ya no está disponible.',
         CLIENTE_NO_ENCONTRADO:      'No se pudo identificar tu cuenta.',
         RECOMPENSA_DE_OTRO_RESTAURANTE: 'Este premio no pertenece a este restaurante.',
+        RECOMPENSA_YA_RECLAMADA:   'Esta recompensa está limitada a un solo uso por cliente y ya la reclamaste anteriormente.',
       };
       setErrorMsg(legibles[err.message] || 'No se pudo generar el código. Intenta de nuevo.');
     } finally {
