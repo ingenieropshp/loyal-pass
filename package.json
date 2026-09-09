@@ -20,6 +20,7 @@
     "@supabase/supabase-js": "^2.101.1",
     "capacitor-native-settings": "^8.2.0",
     "firebase": "^12.11.0",
+    "qrcode.react": "^4.2.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "sharp": "^0.35.3"

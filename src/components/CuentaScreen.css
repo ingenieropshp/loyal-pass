@@ -1,0 +1,623 @@
+/* ===== CUENTA — "Luxury Charcoal & Gold" ===== */
+
+.cuenta-loading {
+  padding: 3rem 1rem;
+  text-align: center;
+  color: var(--text);
+  opacity: 0.6;
+  font-size: 0.9rem;
+}
+
+/* ── Header: avatar + nombre ── */
+.cuenta-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: 1.5rem;
+}
+
+.cuenta-avatar-wrap {
+  position: relative;
+  width: 92px;
+  height: 92px;
+  border-radius: 50%;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.cuenta-avatar-img,
+.cuenta-avatar-iniciales {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  border: 3px solid var(--luxury-gold);
+  box-shadow: 0 0 0 3px rgba(212,175,55,0.18), 0 6px 18px rgba(0,0,0,0.45);
+}
+
+.cuenta-avatar-img { object-fit: cover; display: block; }
+
+.cuenta-avatar-iniciales {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--luxury-bronze);
+  color: var(--luxury-cream);
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 1.7rem;
+}
+
+.cuenta-avatar-editar {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--gold-gradient);
+  color: #1A1204;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  border: 2px solid var(--luxury-dark);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+}
+
+.cuenta-nombre-header {
+  margin-top: 10px;
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 1.15rem;
+  color: var(--text-h);
+  text-align: center;
+}
+
+/* ── Tarjeta de membresía (flip card 3D) ── */
+.cuenta-tarjeta-wrap {
+  width: 100%;
+  margin-bottom: 1.5rem;
+  perspective: 1400px;
+}
+
+.cuenta-tarjeta-flip {
+  position: relative;
+  width: 100%;
+  height: 200px;
+  cursor: pointer;
+  transform-style: preserve-3d;
+  transition: transform 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.cuenta-tarjeta-flip.volteada { transform: rotateY(180deg); }
+
+.cuenta-tarjeta-cara {
+  position: absolute;
+  inset: 0;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  border-radius: 20px;
+  border: 1px solid rgba(212,175,55,0.4);
+  padding: 18px 20px 16px;
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(160deg, #232323 0%, #121212 100%);
+  box-shadow: 0 10px 32px rgba(0,0,0,0.55), 0 0 0 1px rgba(212,175,55,0.06);
+  overflow: hidden;
+}
+
+.cuenta-tarjeta-filete {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  background: var(--gold-gradient);
+}
+
+.cuenta-tarjeta-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.cuenta-tarjeta-marca {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--luxury-gold);
+}
+
+.cuenta-tarjeta-nivel {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text-h);
+  background: rgba(212,175,55,0.14);
+  border: 1px solid rgba(212,175,55,0.3);
+  border-radius: 8px;
+  padding: 3px 10px;
+}
+
+.cuenta-tarjeta-nombre {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 1.2rem;
+  color: var(--text-h);
+  margin-bottom: auto;
+}
+
+.cuenta-tarjeta-bottom {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.cuenta-tarjeta-label {
+  display: block;
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text);
+  opacity: 0.55;
+}
+
+.cuenta-tarjeta-saldo {
+  display: block;
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 1.15rem;
+  color: var(--luxury-gold);
+}
+
+.cuenta-tarjeta-toca {
+  font-size: 0.64rem;
+  color: var(--text);
+  opacity: 0.45;
+  white-space: nowrap;
+}
+
+.cuenta-tarjeta-reverso {
+  transform: rotateY(180deg);
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.cuenta-tarjeta-reverso svg { border-radius: 8px; }
+
+.cuenta-tarjeta-cedula {
+  font-family: 'Courier New', monospace;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--luxury-cream);
+  font-size: 0.85rem;
+}
+
+.cuenta-tarjeta-sin-cedula {
+  text-align: center;
+  font-size: 0.78rem;
+  color: var(--text);
+  opacity: 0.65;
+  padding: 0 1rem;
+}
+
+.cuenta-tarjeta-reverso .cuenta-tarjeta-toca { margin-top: 4px; }
+
+/* ── Tarjetas de sección (formulario / seguridad) ── */
+.cuenta-card {
+  width: 100%;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--r-xl);
+  box-shadow: var(--shadow-card);
+  padding: 1.5rem;
+  margin-bottom: 1.25rem;
+}
+
+.cuenta-card-titulo {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 1rem;
+  color: var(--text-h);
+  margin-bottom: 1.1rem;
+}
+
+.cuenta-alerta {
+  border-radius: var(--r-md);
+  padding: 10px 12px;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  margin-bottom: 1rem;
+}
+
+.cuenta-alerta.error {
+  background: rgba(220,80,50,0.1);
+  color: #e6825f;
+  border: 1px solid rgba(220,80,50,0.25);
+}
+
+.cuenta-alerta.ok {
+  background: rgba(212,175,55,0.1);
+  color: var(--luxury-gold);
+  border: 1px solid rgba(212,175,55,0.3);
+}
+
+.cuenta-field { margin-bottom: 1rem; }
+
+.cuenta-label {
+  display: block;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text);
+  opacity: 0.7;
+  margin-bottom: 5px;
+}
+
+.cuenta-input {
+  width: 100%;
+  padding: 11px 14px;
+  font-size: 16px; /* evita zoom en iPhone */
+  font-family: var(--font-body);
+  background: var(--bg-subtle);
+  border: 1.5px solid var(--border);
+  border-radius: var(--r-md);
+  color: var(--text-h);
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.cuenta-input:focus {
+  border-color: var(--border-mid);
+  box-shadow: 0 0 0 3px rgba(212,175,55,0.12);
+}
+
+.cuenta-input-disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  background: rgba(255,255,255,0.02);
+}
+
+.cuenta-nota-bloqueo {
+  margin-top: 6px;
+  font-size: 0.7rem;
+  color: var(--text);
+  opacity: 0.6;
+  font-style: italic;
+}
+
+.cuenta-phone-row {
+  display: flex;
+  align-items: stretch;
+  border: 1.5px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg-subtle);
+  overflow: hidden;
+}
+
+.cuenta-phone-prefix {
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-h);
+  background: var(--border);
+  flex-shrink: 0;
+}
+
+.cuenta-phone-input {
+  flex: 1;
+  min-width: 0;
+  padding: 11px 14px;
+  font-size: 16px;
+  font-family: var(--font-body);
+  background: transparent;
+  border: none;
+  color: var(--text-h);
+  outline: none;
+}
+
+/* Botón "Guardar cambios" — degradado dorado metálico, texto negro nítido, centrado */
+.cuenta-btn-guardar {
+  display: block;
+  width: 100%;
+  max-width: 320px;
+  margin: 1.1rem auto 0;
+  padding: 13px;
+  background: var(--gold-gradient);
+  color: #14100A;
+  border: none;
+  border-radius: var(--r-md);
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 0.9rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+  box-shadow: var(--shadow-btn);
+  transition: transform 0.1s, opacity 0.2s;
+}
+
+.cuenta-btn-guardar:disabled { opacity: 0.6; cursor: not-allowed; }
+.cuenta-btn-guardar:active:not(:disabled) { transform: scale(0.98); }
+
+.cuenta-btn-secundario {
+  width: 100%;
+  padding: 12px;
+  background: var(--bg-subtle);
+  color: var(--text-h);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--r-md);
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  margin-bottom: 1.1rem;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.cuenta-btn-secundario:active { background: var(--border); }
+
+/* ── Toggles dorados (Proximidad GPS / Promociones) ── */
+.cuenta-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+
+.cuenta-toggle-row:first-of-type { border-top: none; padding-top: 0; }
+
+.cuenta-toggle-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-h);
+  margin-bottom: 2px;
+}
+
+.cuenta-toggle-sub {
+  font-size: 0.72rem;
+  color: var(--text);
+  opacity: 0.6;
+  line-height: 1.35;
+}
+
+.cuenta-switch {
+  position: relative;
+  flex-shrink: 0;
+  width: 46px;
+  height: 26px;
+  display: inline-block;
+}
+
+.cuenta-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.cuenta-switch-slider {
+  position: absolute;
+  inset: 0;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-mid);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.25s;
+}
+
+.cuenta-switch-slider::before {
+  content: '';
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  left: 3px;
+  top: 3px;
+  border-radius: 50%;
+  background: var(--text);
+  opacity: 0.7;
+  transition: transform 0.25s, background 0.25s, opacity 0.25s;
+}
+
+.cuenta-switch input:checked + .cuenta-switch-slider {
+  background: rgba(212,175,55,0.28);
+  border-color: rgba(212,175,55,0.6);
+}
+
+.cuenta-switch input:checked + .cuenta-switch-slider::before {
+  transform: translateX(19px);
+  background: var(--gold-gradient);
+  opacity: 1;
+}
+
+/* ── Diagnóstico rápido (GPS / Push) ── */
+.cuenta-diagnostico {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.cuenta-diagnostico-titulo {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text);
+  opacity: 0.6;
+  margin-bottom: 8px;
+}
+
+.cuenta-diag-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 5px 0;
+}
+
+.cuenta-diag-etiqueta {
+  flex: 1;
+  font-size: 0.8rem;
+  color: var(--text-h);
+}
+
+.cuenta-diag-estado {
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  padding: 3px 9px;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+/* Activo: verde oliva. Inactivo: bronce tenue (no rojo de alarma — pedido
+   explícito del usuario para distinguir este bloque del resto de la app). */
+.cuenta-diag-estado.activa      { color: #B7C97A; background: rgba(154,171,74,0.16); }
+.cuenta-diag-estado.inactiva    { color: #C9AD8C; background: rgba(140,110,75,0.18); }
+.cuenta-diag-estado.desconocida { color: var(--text); opacity: 0.5; background: transparent; }
+
+.cuenta-diag-btn {
+  border: 1px solid var(--border-mid);
+  background: transparent;
+  color: var(--luxury-gold);
+  font-size: 0.66rem;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+/* ── Footer ── */
+.cuenta-footer {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  margin-top: 0.5rem;
+  margin-bottom: 2rem;
+}
+
+.cuenta-link-terminos {
+  font-size: 0.75rem;
+  color: var(--luxury-cream);
+  opacity: 0.55;
+  text-decoration: underline;
+  cursor: pointer;
+  text-align: center;
+}
+
+.cuenta-btn-logout {
+  width: 100%;
+  padding: 13px;
+  background: linear-gradient(135deg, #2A2A2A 0%, #050505 100%);
+  color: var(--luxury-cream);
+  border: 1px solid rgba(212,175,55,0.3);
+  border-radius: var(--r-md);
+  font-weight: 700;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+
+.cuenta-btn-logout:active { border-color: rgba(212,175,55,0.55); }
+
+.cuenta-btn-eliminar {
+  width: 100%;
+  padding: 11px;
+  background: transparent;
+  color: #A9694F;
+  border: 1px solid rgba(169,105,79,0.35);
+  border-radius: var(--r-md);
+  font-weight: 600;
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.cuenta-btn-eliminar:active { background: rgba(169,105,79,0.1); }
+
+/* ── Modales (contraseña / términos / eliminar cuenta) ── */
+.cuenta-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  background: rgba(0,0,0,0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.25rem;
+}
+
+.cuenta-modal {
+  width: 100%;
+  max-width: 420px;
+  max-height: 85vh;
+  overflow-y: auto;
+  background: var(--luxury-dark);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--r-xl);
+  padding: 1.5rem;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+}
+
+.cuenta-modal-titulo {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 1.05rem;
+  color: var(--text-h);
+  margin-bottom: 1rem;
+}
+
+.cuenta-modal-texto {
+  font-size: 0.85rem;
+  color: var(--text);
+  line-height: 1.6;
+}
+
+.cuenta-modal-texto p + p { margin-top: 10px; }
+
+.cuenta-modal-acciones {
+  display: flex;
+  gap: 10px;
+  margin-top: 1.25rem;
+}
+
+.cuenta-modal-acciones .cuenta-btn-secundario,
+.cuenta-modal-acciones .cuenta-btn-guardar {
+  margin: 0;
+  flex: 1;
+}
+
+.cuenta-modal-peligro { border-color: rgba(169,105,79,0.4); }
+
+.cuenta-btn-eliminar-confirmar {
+  flex: 1;
+  padding: 12px;
+  background: linear-gradient(135deg, #8A5236 0%, #5E3220 100%);
+  color: #F5E9DD;
+  border: none;
+  border-radius: var(--r-md);
+  font-weight: 700;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.cuenta-btn-eliminar-confirmar:disabled { opacity: 0.6; cursor: not-allowed; }
+
+/* ── Responsive ── */
+@media (max-width: 380px) {
+  .cuenta-card { padding: 1.15rem; }
+  .cuenta-tarjeta-flip { height: 188px; }
+  .cuenta-avatar-wrap { width: 80px; height: 80px; }
+}
+
+@media (max-width: 340px) {
+  .cuenta-tarjeta-flip { height: 200px; }
+  .cuenta-tarjeta-nombre { font-size: 1.05rem; }
+}

@@ -589,6 +589,7 @@ function App() {
           <CuentaScreen
             clienteId={clienteId}
             nombreCliente={nombreCliente}
+            session={session}
             onLogout={handleLogout}
           />
         ) : tabActiva === 'recompensas' ? (
