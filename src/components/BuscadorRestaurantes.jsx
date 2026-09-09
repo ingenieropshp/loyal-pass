@@ -38,6 +38,12 @@ export const BuscadorRestaurantes = ({ session, onLogout }) => {
   const [desvinculando, setDesvinculando] = useState(false);
   const [errorDesvinculo, setErrorDesvinculo] = useState('');
 
+  // Modal de confirmación flexible antes de unirse a un restaurante nuevo
+  // (Módulo 6): el clic sobre una tarjeta NO inscrita ya no navega directo
+  // a "Crea tu perfil" — primero muestra este paso, cero invasivo, con
+  // salida clara ("Más tarde"/"✕") para quien solo estaba explorando.
+  const [restauranteAUnirse, setRestauranteAUnirse] = useState(null); // { id, nombre } | null
+
   useEffect(() => {
     const cargar = async () => {
       setCargando(true);
@@ -146,6 +152,30 @@ export const BuscadorRestaurantes = ({ session, onLogout }) => {
     } finally {
       setDesvinculando(false);
     }
+  };
+
+  // ── Unirse a un restaurante nuevo (Módulo 6) ────────────────────────────
+  // El clic en una tarjeta de "Descubre restaurantes" NO inscrita ya no
+  // navega directo — primero pasa por aquí, para que el usuario decida con
+  // control total (mismo criterio de fricción-cero que ya se usa para
+  // desvincularse, pero en la dirección contraria).
+  const solicitarUnion = (restaurante) => {
+    setRestauranteAUnirse(restaurante);
+  };
+
+  const cancelarUnion = () => {
+    setRestauranteAUnirse(null);
+  };
+
+  const confirmarUnion = () => {
+    if (!restauranteAUnirse) return;
+    // irA() ya es una navegación real de browser (window.location.href), no
+    // solo un cambio de estado en memoria — así que el botón físico de
+    // "Atrás" de Android ya funciona correctamente aquí sin necesitar
+    // @capacitor/app: el bridge de Capacitor intercepta el back button y
+    // llama a WebView.goBack() por defecto cuando hay historial de
+    // navegación real que recorrer, que es justo lo que esto genera.
+    irA(restauranteAUnirse.nombre);
   };
 
   const filtrados = restaurantes.filter(r =>
@@ -283,7 +313,7 @@ export const BuscadorRestaurantes = ({ session, onLogout }) => {
                 const inscrito = !!datos;
                 const nivel    = datos ? calcularNivel(datos.puntos) : null;
                 return (
-                  <button key={r.id} onClick={() => irA(r.nombre)}
+                  <button key={r.id} onClick={() => (inscrito ? irA(r.nombre) : solicitarUnion(r))}
                     style={inscrito ? { ...styles.card, ...styles.cardMine } : styles.card}>
                     <div style={styles.cardLeft}>
                       <div style={inscrito ? { ...styles.avatar, ...styles.avatarMine } : styles.avatar}>
@@ -336,6 +366,45 @@ export const BuscadorRestaurantes = ({ session, onLogout }) => {
                 style={styles.btnConfirmarBaja}
               >
                 {desvinculando ? 'Desvinculando…' : 'Confirmar baja'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {restauranteAUnirse && (
+        <div style={styles.modalOverlay} onClick={cancelarUnion}>
+          <div style={{ ...styles.modal, position: 'relative' }} onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              onClick={cancelarUnion}
+              aria-label="Cerrar"
+              style={styles.modalCerrarX}
+            >
+              ✕
+            </button>
+            <h3 style={{ ...styles.modalTitulo, marginTop: '0.5rem' }}>
+              ¿Unirte a {restauranteAUnirse.nombre}?
+            </h3>
+            <p style={styles.modalTexto}>
+              Crea tu perfil en este restaurante y recibe <strong>+500 pts</strong> de bono de
+              bienvenida al instante. Desde ahí acumulas puntos por cada consumo y por estar
+              cerca del local.
+            </p>
+            <div style={styles.modalAcciones}>
+              <button
+                type="button"
+                onClick={cancelarUnion}
+                style={styles.btnMasTarde}
+              >
+                Más tarde
+              </button>
+              <button
+                type="button"
+                onClick={confirmarUnion}
+                style={styles.btnCancelarDorado}
+              >
+                Unirme y ganar +500 pts
               </button>
             </div>
           </div>
@@ -569,6 +638,42 @@ const styles = {
     fontSize: '0.85rem',
     fontFamily: 'var(--font-display)',
     letterSpacing: '0.02em',
+    cursor: 'pointer',
+  },
+
+  // Botón "✕" en la esquina superior izquierda del modal de unión (Módulo
+  // 6) — salida explícita además de tocar fuera del modal, tal como se
+  // pidió.
+  modalCerrarX: {
+    position: 'absolute',
+    top: 12,
+    left: 12,
+    width: 30,
+    height: 30,
+    borderRadius: '50%',
+    background: 'rgba(245,245,220,0.08)',
+    border: '1px solid var(--border)',
+    color: 'var(--text)',
+    fontSize: '0.9rem',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    cursor: 'pointer',
+    lineHeight: 1,
+  },
+  // "Más tarde" — salida neutra para quien solo estaba explorando; a
+  // diferencia de btnConfirmarBaja (rojo/bronce) esto no debe leerse como
+  // una acción destructiva ni de advertencia.
+  btnMasTarde: {
+    flex: 1,
+    padding: 12,
+    background: 'transparent',
+    color: 'var(--text)',
+    border: '1px solid var(--border)',
+    borderRadius: 'var(--r-md)',
+    fontWeight: 700,
+    fontSize: '0.85rem',
+    fontFamily: 'var(--font-body)',
     cursor: 'pointer',
   },
 };

@@ -54,10 +54,12 @@ const GEOFENCE_WEBHOOK_URL = import.meta.env.VITE_GEOFENCE_WEBHOOK_URL;
 // leer el payload.
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-// Piso recomendado por Apple/plugins de geofencing nativo: por debajo de
-// ~100m el margen de error normal del GPS (10-50m en ciudad, peor entre
-// edificios altos) genera falsos negativos/positivos.
-const RADIO_MINIMO_METROS = 100;
+// Piso de seguridad contra el margen de error normal del GPS (10-50m en
+// ciudad, peor entre edificios altos). Se bajó de 100m a 50m a pedido del
+// negocio para permitir geocercas más ajustadas — sigue dejando margen
+// frente al error típico del GPS, pero ya no exagera el radio mínimo como
+// antes.
+const RADIO_MINIMO_METROS = 50;
 
 // Clave de localStorage usada ÚNICAMENTE para no reenviar el mismo evento de
 // entrada mientras el usuario sigue dentro de la geocerca en la misma
