@@ -75,6 +75,14 @@ export const CLAVE_VISTA          = 'guia_permisos_vista';
 export const CLAVE_FECHA          = 'fecha_ultimo_aviso';
 const CLAVE_BANNER_SNOOZE         = 'guia_permisos_banner_snooze_hasta';
 const CLAVE_BATERIA_DISMISSED     = 'loyalpass_battery_guide_dismissed'; // misma clave de BatteryOptimizationGuide.jsx
+// Marca que el usuario ya tocó "Abrir ajustes de batería" y volvió a la app
+// — NO es una verificación real de que la optimización quedó desactivada
+// (Android no expone esa consulta a `capacitor-native-settings`, y agregar
+// el plugin que sí podría preguntarlo directo — @capawesome-team/capacitor-
+// android-battery-optimization — es justo lo que este archivo evita por el
+// riesgo de política de Play documentado más abajo, en abrirAjustesBateria
+// de BatteryOptimizationGuide.jsx). Es honesto: "revisado", no "activo".
+const CLAVE_BATERIA_REVISADA      = 'loyalpass_bateria_revisada';
 const EVENTO_ABRIR_GUIA           = 'loyalpass_abrir_guia_permisos';
 const COOLDOWN_BANNER_MS          = 14 * 24 * 60 * 60 * 1000; // 14 días
 const SNOOZE_BANNER_MS            = 14 * 24 * 60 * 60 * 1000; // 2 semanas más al descartar
@@ -134,6 +142,13 @@ function EstadoBadge({ estado }) {
   if (estado === 'activa') {
     return <span style={estilos.badgeActiva}>✓ Activo</span>;
   }
+  // "Revisado" (no "Activo"): honesto sobre lo que realmente sabemos — el
+  // usuario volvió de la pantalla de ajustes, pero no hay forma de
+  // consultar si de verdad desactivó la optimización (ver nota en
+  // CLAVE_BATERIA_REVISADA más arriba).
+  if (estado === 'revisado') {
+    return <span style={estilos.badgeRevisado}>✓ Revisado</span>;
+  }
   if (estado === 'inactiva') {
     return <span style={estilos.badgeInactiva}>Inactivo</span>;
   }
@@ -183,6 +198,17 @@ export function GuiaPermisosModal() {
   const [pushEstado, setPushEstado] = useState('desconocida');
   const [gpsCargando, setGpsCargando]   = useState(false);
   const [pushCargando, setPushCargando] = useState(false);
+  // Batería: se inicializa leyendo si ya se marcó "revisado" en una visita
+  // anterior a este mismo modal (persiste entre sesiones — no tendría
+  // sentido volver a mostrar "Abrir ajustes de batería" como si nunca se
+  // hubiera tocado si el usuario ya pasó por ahí).
+  const [bateriaEstado, setBateriaEstado] = useState(() => {
+    try {
+      return localStorage.getItem(CLAVE_BATERIA_REVISADA) === 'true' ? 'revisado' : 'desconocida';
+    } catch {
+      return 'desconocida';
+    }
+  });
 
   // Primera apertura tras instalar: solo si nunca se marcó `guia_permisos_vista`.
   useEffect(() => {
@@ -245,6 +271,33 @@ export function GuiaPermisosModal() {
     }
   }, []);
 
+  // Paso 3 (batería): abre la pantalla nativa de ajustes (abrirAjustesBateria,
+  // ya implementada en BatteryOptimizationGuide.jsx vía capacitor-native-
+  // settings) y, cuando el usuario VUELVE a la app, marca el paso como
+  // "revisado" — es la única señal de retorno disponible sin agregar un
+  // plugin nuevo: `document.visibilitychange` es un evento web estándar,
+  // funciona igual dentro del WebView de Capacitor, y no depende de ningún
+  // permiso ni entra en ninguna zona restringida de la política de Play
+  // (a diferencia de consultar el estado real de la optimización, que sí
+  // requeriría el plugin que este proyecto decidió evitar).
+  const manejarBateria = useCallback(async () => {
+    const abierto = await abrirAjustesBateria();
+    if (!abierto) return;
+
+    const marcarRevisado = () => {
+      if (document.visibilityState !== 'visible') return;
+      document.removeEventListener('visibilitychange', marcarRevisado);
+      try {
+        localStorage.setItem(CLAVE_BATERIA_REVISADA, 'true');
+      } catch {
+        // localStorage no disponible — el estado en memoria de abajo igual
+        // se actualiza para esta sesión; cero invasivo si no persiste.
+      }
+      setBateriaEstado('revisado');
+    };
+    document.addEventListener('visibilitychange', marcarRevisado);
+  }, []);
+
   if (!mostrar) return null;
 
   return (
@@ -291,10 +344,10 @@ export function GuiaPermisosModal() {
             icono="🔋"
             titulo="Batería sin restricciones"
             descripcion="Algunos celulares (Xiaomi, Samsung, Huawei, OnePlus...) cierran apps en segundo plano para ahorrar batería. Libera LoyalPass para que no se te corten los puntos de cercanía."
-            estado="desconocida"
+            estado={bateriaEstado}
             cargando={false}
-            textoBoton="Abrir ajustes de batería"
-            onAccionar={abrirAjustesBateria}
+            textoBoton={bateriaEstado === 'revisado' ? 'Volver a abrir ajustes' : 'Abrir ajustes de batería'}
+            onAccionar={manejarBateria}
             extra={
               <a
                 href="https://dontkillmyapp.com/?app=LoyalPass"
@@ -453,6 +506,15 @@ const estilos = {
     fontSize: '0.68rem', fontWeight: 700, color: 'var(--text, rgba(245,245,220,0.6))',
     background: 'rgba(245,245,220,0.08)',
     border: '1px solid var(--border, rgba(212,175,55,0.16))',
+    borderRadius: 999, padding: '3px 8px', whiteSpace: 'nowrap',
+  },
+  // "Revisado" (batería) — tono dorado, distinto del verde de "Activo": no
+  // es una verificación real, solo confirma que el usuario pasó por
+  // ajustes. Ver CLAVE_BATERIA_REVISADA.
+  badgeRevisado: {
+    fontSize: '0.68rem', fontWeight: 700, color: 'var(--luxury-gold, #D4AF37)',
+    background: 'rgba(212,175,55,0.12)',
+    border: '1px solid rgba(212,175,55,0.35)',
     borderRadius: 999, padding: '3px 8px', whiteSpace: 'nowrap',
   },
   btnAccion: {
