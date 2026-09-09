@@ -84,7 +84,7 @@ function soloDigitosLocales(telefono) {
 
 const hoyISO = () => new Date().toISOString().slice(0, 10);
 
-export function CuentaScreen({ clienteId, restauranteId, nombreCliente, session, onLogout }) {
+export function CuentaScreen({ clienteId, restauranteId, nombreCliente, session, onLogout, onAvatarChange }) {
   const authUserId = session?.user?.id || null;
   const authEmail  = session?.user?.email || '';
 
@@ -194,6 +194,10 @@ export function CuentaScreen({ clienteId, restauranteId, nombreCliente, session,
       if (errorUpdate) throw errorUpdate;
 
       setCliente((prev) => (prev ? { ...prev, avatar_url: urlConCacheBust } : prev));
+      // Propaga la nueva foto hacia App.jsx (no existe un Context/estado
+      // global de `cliente` en este proyecto — ver AppHeader.jsx) para que
+      // el avatar del header se actualice al instante, sin recargar.
+      onAvatarChange?.(urlConCacheBust);
       setMensaje({ tipo: 'ok', texto: 'Foto de perfil actualizada.' });
     } catch (err) {
       console.error('[CuentaScreen] Error subiendo avatar:', err);

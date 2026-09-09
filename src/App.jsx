@@ -110,6 +110,7 @@ function App() {
   });
   const [nombreCliente,   setNombreCliente]    = useState('');
   const [puntosCliente,   setPuntosCliente]    = useState(0);
+  const [avatarUrl,       setAvatarUrl]        = useState(null); // foto de perfil (clientes.avatar_url) — mostrada junto al saludo en AppHeader
   const [isRegisteredNow, setIsRegisteredNow]  = useState(false);
   const [esReingreso,     setEsReingreso]      = useState(false);
   const [isVerifyingUser, setIsVerifyingUser]  = useState(!!restauranteID);
@@ -220,19 +221,23 @@ function App() {
             // validación de saldo de la pantalla de Recompensas (y cualquier
             // otro lugar que mostrara el saldo) para la mayoría de usuarios.
             setPuntosCliente(cliente.saldo_puntos);
+            setAvatarUrl(cliente.avatar_url ?? null);
           } else {
             // Autenticado globalmente, pero aún NO inscrito en esta sede.
             delete registros[restauranteID];
             localStorage.setItem('loyalpass_multisede', JSON.stringify(registros));
             setClienteId(null);
+            setAvatarUrl(null);
           }
         } else if (clienteId) {
           // FIX: esta consulta pedía una columna `puntos` que ya no existe en
           // `clientes` (la real es `saldo_puntos`) — PostgREST devolvía un
           // error 400 en cada carga para cualquier usuario en esta ruta de
           // compatibilidad (sin sesión, con clienteId guardado localmente).
+          // avatar_url se agrega al select por el mismo motivo que en
+          // buscarClienteEnRestaurante — esta es la ruta legacy sin sesión.
           const { data: userDB, error: errorUser } = await supabase
-            .from('clientes').select('id, nombre, saldo_puntos')
+            .from('clientes').select('id, nombre, saldo_puntos, avatar_url')
             .eq('id', clienteId).maybeSingle();
 
           if (errorUser || !userDB) {
@@ -243,6 +248,7 @@ function App() {
           } else {
             setNombreCliente(userDB.nombre);
             setPuntosCliente(userDB.saldo_puntos);
+            setAvatarUrl(userDB.avatar_url ?? null);
           }
         }
 
@@ -422,6 +428,7 @@ function App() {
     setClienteId(nuevoId);
     setNombreCliente(nombre);
     setPuntosCliente(puntos);
+    setAvatarUrl(null); // cliente recién creado — todavía no tiene foto de perfil
     setEsReingreso(reingreso);
     setIsRegisteredNow(true);
 
@@ -461,6 +468,7 @@ function App() {
     setClienteId(null);
     setNombreCliente('');
     setPuntosCliente(0);
+    setAvatarUrl(null);
     setIsRegisteredNow(false);
     // `session` se actualiza solo vía onAuthStateChange (evento SIGNED_OUT).
   };
@@ -584,6 +592,7 @@ function App() {
     <>
       <AppHeader
         nombreCliente={nombreCliente}
+        avatarUrl={avatarUrl}
         unreadCount={notif.unreadCount}
         onBellClick={() => setCentroNotifAbierto(true)}
       />
@@ -613,6 +622,7 @@ function App() {
             nombreCliente={nombreCliente}
             session={session}
             onLogout={handleLogout}
+            onAvatarChange={setAvatarUrl}
           />
         ) : tabActiva === 'recompensas' ? (
           <div style={{ width: '100%' }}>

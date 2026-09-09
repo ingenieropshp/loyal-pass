@@ -115,13 +115,16 @@ export const addData = async (table, data) => {
  * restaurante es una decisión aparte del usuario, tomada a través del
  * formulario "Crea tu perfil" (ver registrarClienteEnRestaurante).
  *
- * Devuelve la fila { id, nombre, saldo_puntos } si existe, o null si el usuario
- * todavía no se ha unido a ese restaurante.
+ * Devuelve la fila { id, nombre, saldo_puntos, avatar_url } si existe, o null
+ * si el usuario todavía no se ha unido a ese restaurante.
  */
 export const buscarClienteEnRestaurante = async ({ authUserId, restauranteId }) => {
   const { data, error } = await supabase
     .from('clientes')
-    .select('id, nombre, saldo_puntos')
+    // avatar_url se agrega acá para que AppHeader.jsx pueda mostrar la foto
+    // de perfil junto al saludo sin una consulta aparte — mismo criterio que
+    // ya usa CuentaScreen.jsx en su propio CAMPOS_PERFIL.
+    .select('id, nombre, saldo_puntos, avatar_url')
     .eq('auth_user_id', authUserId)
     .eq('restaurante_id', restauranteId)
     // FIX: sin este filtro, un cliente que se desvinculó voluntariamente de

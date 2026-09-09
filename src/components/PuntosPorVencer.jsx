@@ -25,6 +25,14 @@
  * filete dorado" en toda la pantalla, sin duplicar CSS). UserDashboard.jsx
  * ya importa BarraProgresoPuntos.css, así que este componente no necesita
  * importar ningún CSS propio.
+ *
+ * REACTIVIDAD (Supabase Realtime): este componente hace su propia consulta,
+ * separada de la de UserDashboard.jsx/cargarPuntos — así que un refresh de
+ * saldo en el dashboard no le llega solo. Se suscribe él mismo a los INSERT
+ * de `transacciones_puntos` de este cliente y vuelve a pedir el lote más
+ * próximo a vencer cuando llega uno, para que "X pts vencen pronto" quede
+ * al día sin recargar la pantalla (ej. si el nuevo consumo generó un lote
+ * que vence antes que el que se estaba mostrando).
  */
 
 import { useEffect, useState } from 'react';
@@ -69,7 +77,28 @@ export function PuntosPorVencer({ clienteId, restauranteId }) {
     };
 
     cargar();
-    return () => { cancelado = true; };
+
+    // Realtime: cualquier movimiento nuevo del Ledger para este cliente
+    // (consumo, geocerca, bono o redención) puede cambiar cuál es el lote
+    // más próximo a vencer, así que se vuelve a consultar.
+    const canal = supabase
+      .channel(`realtime-vencimiento-${clienteId}`)
+      .on(
+        'postgres_changes',
+        {
+          event:  'INSERT',
+          schema: 'public',
+          table:  'transacciones_puntos',
+          filter: `cliente_id=eq.${clienteId}`,
+        },
+        () => { cargar(); }
+      )
+      .subscribe();
+
+    return () => {
+      cancelado = true;
+      supabase.removeChannel(canal);
+    };
   }, [clienteId, restauranteId]);
 
   if (cargando || !lote) return null;

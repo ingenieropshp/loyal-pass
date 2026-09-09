@@ -26,7 +26,7 @@ function obtenerPrimerNombre(nombreCompleto) {
   return primero.charAt(0).toUpperCase() + primero.slice(1);
 }
 
-export function AppHeader({ nombreCliente, unreadCount = 0, onBellClick }) {
+export function AppHeader({ nombreCliente, avatarUrl, unreadCount = 0, onBellClick }) {
   const iniciales   = obtenerIniciales(nombreCliente);
   const primerNombre = obtenerPrimerNombre(nombreCliente);
   const hayNoLeidas = unreadCount > 0;
@@ -34,9 +34,21 @@ export function AppHeader({ nombreCliente, unreadCount = 0, onBellClick }) {
   return (
     <header className="app-header">
       <div className="app-header-inner">
-        <div className="app-header-avatar" aria-hidden="true">
-          {iniciales}
-        </div>
+        {/* Foto de perfil (clientes.avatar_url, subida desde CuentaScreen.jsx)
+            con borde dorado; si el cliente no tiene foto todavía, se
+            mantienen las iniciales de siempre — mismo tamaño/posición, sin
+            layout shift al llegar la foto. */}
+        {avatarUrl ? (
+          <img
+            src={avatarUrl}
+            alt={nombreCliente || 'Perfil'}
+            className="app-header-avatar-img"
+          />
+        ) : (
+          <div className="app-header-avatar" aria-hidden="true">
+            {iniciales}
+          </div>
+        )}
 
         <div className="app-header-greeting">
           {primerNombre ? `¡Hola, ${primerNombre}!` : '¡Hola!'}

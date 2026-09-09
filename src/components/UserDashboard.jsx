@@ -5,6 +5,7 @@ import RedimirPuntosModal                   from './RedimirPuntosModal';
 import { BarraProgresoPuntos }              from './BarraProgresoPuntos';
 import { PuntosPorVencer }                  from './PuntosPorVencer';
 import { useGeofencingContext }             from './GeofencingProvider';
+import { dispararToastPush }                from './PushToast';
 import './UserDashboard.css';
 import './BarraProgresoPuntos.css';
 
@@ -82,6 +83,56 @@ export const UserDashboard = ({
   };
 
   useEffect(() => { cargarPuntos(); }, [clienteId, restauranteId]);
+
+  // ── Supabase Realtime: saldo de puntos en vivo ──────────────────────────
+  // Se suscribe a `transacciones_puntos` (el Ledger — ver descripción del
+  // proyecto) filtrado por este cliente. Tanto un ingreso (consumo,
+  // geocerca, bono) como un egreso (redención aplicada en caja, Paso 2 del
+  // flujo atómico) son un INSERT en esta tabla — trg_actualizar_saldo_
+  // cliente_por_transaccion ya corre en el mismo commit y deja
+  // clientes.saldo_puntos al día, así que basta con re-consultar (cargarPuntos)
+  // cuando llega el evento, sin recalcular nada del lado del cliente.
+  // La tabla `supabase_realtime` publication ya incluye transacciones_puntos
+  // y clientes (verificado en Supabase — no hace falta el ALTER PUBLICATION).
+  //
+  // Mismo patrón (canal/postgres_changes/removeChannel) que ya usa App.jsx
+  // para `conexion`/`configuracion`. El toast reutiliza PushToast.jsx (no
+  // hay librería de toasts instalada en este proyecto — ver package.json)
+  // en vez de la API `toast.success/.info` del pedido original.
+  useEffect(() => {
+    if (!clienteId) return;
+
+    const canal = supabase
+      .channel(`realtime-puntos-${clienteId}`)
+      .on(
+        'postgres_changes',
+        {
+          event:  'INSERT',
+          schema: 'public',
+          table:  'transacciones_puntos',
+          filter: `cliente_id=eq.${clienteId}`,
+        },
+        (payload) => {
+          cargarPuntos();
+          const { puntos, tipo } = payload.new;
+          if (puntos > 0) {
+            dispararToastPush({
+              titulo: '🎉 ¡Puntos sumados!',
+              cuerpo: `+${puntos.toLocaleString('es-CO')} pts al instante${tipo ? ` (${tipo})` : ''}.`,
+            });
+          } else if (puntos < 0) {
+            dispararToastPush({
+              titulo: '🎟️ Puntos descontados',
+              cuerpo: `${Math.abs(puntos).toLocaleString('es-CO')} pts descontados de tu saldo.`,
+            });
+          }
+        }
+      )
+      .subscribe();
+
+    return () => { supabase.removeChannel(canal); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clienteId, restauranteId]);
 
   // ── Service Worker ──────────────────────────────────────────────────────
   useEffect(() => {
