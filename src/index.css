@@ -99,6 +99,29 @@ input, select, textarea {
   font-family: var(--font-body);
 }
 
+/* FIX (video "SE ABREN 2" en el login): esto NO es un bug de la app — es
+ * el propio Android/WebView el que, apenas el gestor de contraseñas
+ * autocompleta correo+contraseña guardados, le fuerza a esos campos un
+ * fondo claro y letra oscura por su cuenta, ignorando por completo
+ * nuestro CSS (fondo oscuro `--bg-subtle`). Por eso el formulario de
+ * login se ve como si "cambiara" a otra pantalla distinta apenas se
+ * autocompleta: es el MISMO formulario, solo que el sistema le pintó
+ * encima sus propios colores. El truco estándar para neutralizarlo es
+ * forzar el fondo real mediante un box-shadow interior gigante (Chrome no
+ * deja pisar `background` directamente en :-webkit-autofill) y frenar su
+ * transición de color a un valor absurdamente largo para que ni siquiera
+ * se alcance a notar el cambio. */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active {
+  -webkit-text-fill-color: var(--text-h) !important;
+  -webkit-box-shadow: 0 0 0px 1000px var(--bg-subtle) inset !important;
+  box-shadow: 0 0 0px 1000px var(--bg-subtle) inset !important;
+  caret-color: var(--text-h);
+  transition: background-color 5000s ease-in-out 0s;
+}
+
 /* ===== SCROLLBAR ===== */
 ::-webkit-scrollbar       { width: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
