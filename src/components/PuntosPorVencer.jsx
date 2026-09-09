@@ -19,6 +19,15 @@
  * cliente). El frontend ya no repite esa lógica de negocio — solo pinta lo
  * que la función devuelve.
  *
+ * FIX (texto "Vigencia de 90 días" contradecía los días mostrados): por la
+ * regla de consolidación mensual (los 90 días de vigencia empiezan a correr
+ * recién el ÚLTIMO día del mes en que se ganaron los puntos, no el día en
+ * que se ganaron), `diasRestantes` es CASI SIEMPRE mayor a 90 — solo baja de
+ * 90 una vez que el mes ya se consolidó. El texto viejo decía siempre
+ * "Vigencia de 90 días · te quedan 111 días", por ejemplo, que se lee como
+ * una contradicción para el cliente aunque el número esté bien calculado.
+ * Se quita la mención fija a "90 días" y se deja solo el conteo real.
+ *
  * Reutiliza las clases .mis-puntos-card / .puntos-vencer-* definidas en
  * BarraProgresoPuntos.css (mismo tratamiento "tarjeta premium negra con
  * filete dorado" en toda la pantalla, sin duplicar CSS). UserDashboard.jsx
@@ -110,7 +119,7 @@ export function PuntosPorVencer({ clienteId, restauranteId }) {
         <p className="puntos-vencer-detalle">
           {diasRestantes === 0
             ? 'Vencen hoy — úsalos antes de la medianoche.'
-            : `Vigencia de 90 días · te quedan ${diasRestantes} día${diasRestantes === 1 ? '' : 's'}.`}
+            : `Te quedan ${diasRestantes} día${diasRestantes === 1 ? '' : 's'} para usarlos.`}
         </p>
       </div>
     </div>
