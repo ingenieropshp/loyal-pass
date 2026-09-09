@@ -119,9 +119,20 @@ function App() {
   const [sedeNoEncontrada, setSedeNoEncontrada] = useState(false);
   const [llegadaConfirmada, setLlegadaConfirmada] = useState(false); // banner "✓ Llegada registrada"
 
-  // Pestaña activa de la barra inferior. Solo "inicio" tiene contenido real
-  // por ahora; las demás muestran ComingSoonScreen (ver diseño solicitado).
-  const [tabActiva, setTabActiva] = useState('inicio');
+  // Pestaña activa de la barra inferior.
+  //
+  // Deep link desde push (usePushNotifications.js): al tocar una notificación
+  // de VENCIMIENTO_PUNTOS, el listener recarga la app con `?tab=recompensas`
+  // agregado a la URL (además de `?restaurante_id=`) para aterrizar directo
+  // en el Catálogo de Recompensas, en vez de la pestaña "inicio" por defecto
+  // — el objetivo es que el cliente vea qué puede redimir antes de perder los
+  // puntos. Se valida contra una lista conocida: un valor ausente o inválido
+  // cae en 'inicio', igual que siempre.
+  const TABS_VALIDAS = new Set(['inicio', 'historial', 'cuenta', 'recompensas']);
+  const [tabActiva, setTabActiva] = useState(() => {
+    const tabDeURL = params.get('tab');
+    return TABS_VALIDAS.has(tabDeURL) ? tabDeURL : 'inicio';
+  });
   const [centroNotifAbierto, setCentroNotifAbierto] = useState(false); // drawer de la campana
   const TITULOS_TAB = {
     recompensas: 'Recompensas',

@@ -24,20 +24,19 @@
  *     (ver components/PushToast.jsx) — no bloqueante, con el mismo
  *     lenguaje visual del resto de la app.
  *   - Toque sobre la notificación (segundo plano o app cerrada) → dispara
- *     'pushNotificationActionPerformed'. SIEMPRE lleva al usuario directo a
- *     la vista principal (pestaña "inicio"), que es donde vive la Tarjeta
- *     de Membresía 3D Flip con el QR de la cédula listo para escaneo en
- *     caja — no a "confirmar llegada" (ese flujo ya no existe, ver
- *     UserDashboard.jsx) ni a la pantalla que haya quedado guardada de una
- *     sesión anterior. Cubre las dos fuentes de push reales hoy:
- *       · geofence-webhook (proximidad): manda `data.tipo = 'GEOCERCA_PROXIMIDAD'`
- *         + `data.restaurante_id` → se usa ese restaurante_id para reabrir
- *         la sede correcta.
- *       · alertas-vencimiento-puntos (saldo por vencer): NO manda `data`
- *         (solo title/body) → no hay restaurante_id que propagar, así que
- *         se navega a "/" a secas y la app resuelve la sede con el último
- *         escaneo persistido en localStorage (CLAVE_ESCANEO_PENDIENTE, ver
- *         App.jsx) — igual termina en la misma Tarjeta de Membresía.
+ *     'pushNotificationActionPerformed'. Rutea según `data.tipo` (ver
+ *     App.jsx para cómo se consume `?restaurante_id=`/`?tab=` en la URL):
+ *       · 'GEOCERCA_PROXIMIDAD' (geofence-webhook): notificación de
+ *         proximidad → Tarjeta de Membresía 3D Flip (pestaña "inicio"),
+ *         con `data.restaurante_id` para reabrir la sede correcta.
+ *       · 'VENCIMIENTO_PUNTOS' (alertas-vencimiento-puntos): notificación
+ *         de saldo por vencer → Catálogo de Recompensas (pestaña
+ *         "recompensas"), para que el cliente vea qué puede redimir antes
+ *         de perder los puntos, con `data.restaurante_id` también.
+ *       · Cualquier otro caso (o sin `data`, ej. un push viejo sin este
+ *         campo) → Tarjeta de Membresía a secas ("/"), la app resuelve la
+ *         sede con el último escaneo persistido en localStorage
+ *         (CLAVE_ESCANEO_PENDIENTE, ver App.jsx).
  *
  * Requiere:
  *   npm install @capacitor/push-notifications
@@ -148,22 +147,23 @@ export function usePushNotifications() {
         });
 
         // ── El usuario tocó la notificación (segundo plano o app cerrada) ──
-        // Deep link directo a la Tarjeta de Membresía (pestaña "inicio"):
-        // NO se filtra por `datos.tipo` porque hoy TODA notificación push
-        // real de esta app es o bien de geocerca/proximidad o bien de saldo
-        // por vencer — las dos deben abrir lo mismo. Si en el futuro se
-        // agrega un tipo de push que no deba llevar acá, este es el lugar
-        // para volver a poner un `if (datos.tipo === ...)`.
-        //
-        // `window.location.href` fuerza una recarga completa del WebView:
-        // eso reinicia `tabActiva` a su valor por defecto ('inicio' — ver
-        // App.jsx) y con eso alcanza para caer en la Tarjeta de Membresía,
-        // sin necesitar ningún estado de ruteo adicional.
+        // `window.location.href` fuerza una recarga completa del WebView —
+        // determinístico sin importar si la app estaba en memoria o el SO
+        // ya la había matado. App.jsx lee `?restaurante_id=` y `?tab=` al
+        // arrancar para inicializar `restauranteID`/`tabActiva`, así que
+        // basta con armar bien la URL acá; no hace falta ningún setter de
+        // React (no hay forma de llamarlos desde este listener de todos
+        // modos — vive en un módulo aparte de App.jsx).
         listenerAccion = await PushNotifications.addListener('pushNotificationActionPerformed', (accion) => {
           const datos = accion?.notification?.data || {};
-          window.location.href = datos.restaurante_id
-            ? `/?restaurante_id=${encodeURIComponent(datos.restaurante_id)}`
-            : '/';
+          const tab = datos.tipo === 'VENCIMIENTO_PUNTOS' ? 'recompensas' : null;
+
+          const query = new URLSearchParams();
+          if (datos.restaurante_id) query.set('restaurante_id', datos.restaurante_id);
+          if (tab) query.set('tab', tab);
+
+          const queryString = query.toString();
+          window.location.href = queryString ? `/?${queryString}` : '/';
         });
 
         await PushNotifications.register();

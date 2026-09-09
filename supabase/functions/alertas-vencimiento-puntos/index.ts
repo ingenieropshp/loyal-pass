@@ -26,12 +26,29 @@
 // justo lo que se agrega abajo (mismo mecanismo que geofence-webhook/index.ts).
 // Como esta app solo se distribuye en Android por ahora (iOS pospuesto, ver
 // README del proyecto), no se agrega el bloque `apns`.
+//
+// v3 (FIX: faltaba restaurante_id en el payload → el deep link del cliente
+// no podía saber a qué sede llevar al tocar la notificación):
+// `fn_clientes_puntos_por_vencer()` ahora también devuelve `restaurante_id`
+// y `proxima_fecha_vencimiento` (ver migración correspondiente) — antes solo
+// agrupaba por cliente, sin sede. Se agrega un objeto `data` al payload FCM
+// (tipo/restaurante_id/puntos/dias_restantes, TODOS como string — requisito
+// estricto de FCM) para que `usePushNotifications.js` pueda rutear al
+// catálogo de recompensas de la sede correcta. También se agregan
+// `channel_id`/`priority: 'high'` al bloque `android`, igual que
+// geofence-webhook/index.ts, para que Android trate este push con la misma
+// prioridad heads-up (mismo canal 'geofence-alerts' que ya crea la app).
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { SignJWT, importPKCS8 } from "https://esm.sh/jose@5";
 
 const MINIMO_REDENCION = 15000;
 const LOTE_ENVIO = 300; // clientes procesados en paralelo por tanda
+
+// ── Canal de notificación nativo del cliente — DEBE coincidir carácter por
+// carácter con CANAL_ID_GEOFENCE en useGeofencing.js / usePushNotifications.js
+// y con geofence-webhook/index.ts.
+const CANAL_ID_GEOFENCE = 'geofence-alerts';
 
 // Acepta el secreto como JSON crudo o como base64 del JSON (recomendado en
 // Windows/PowerShell, donde pegar un JSON completo con comillas y saltos de
@@ -46,7 +63,7 @@ function decodificarServiceAccount(raw: string): Record<string, string> {
   return JSON.parse(json);
 }
 
-// ── Autenticación con Firebase (FCM HTTP v1) ─────────────────────────────────
+// ── Autenticación con Firebase (FCM HTTP v1) ────────────────────────────────────────────────────────────────────────────────────────────────
 async function obtenerTokenAccesoFCM(secretoCrudo: string): Promise<string> {
   const cuenta = decodificarServiceAccount(secretoCrudo);
   const clavePrivada = await importPKCS8(cuenta.private_key, "RS256");
@@ -82,6 +99,7 @@ async function enviarPushFCM(
   tokenDispositivo: string,
   titulo: string,
   cuerpo: string,
+  datos: Record<string, string>,
 ) {
   const resp = await fetch(
     `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`,
@@ -99,8 +117,14 @@ async function enviarPushFCM(
           // Ver nota técnica arriba del archivo sobre por qué va acá y no
           // dentro de `notification`.
           android: {
-            notification: { sound: "default" },
+            priority: "high",
+            notification: {
+              sound: "default",
+              channel_id: CANAL_ID_GEOFENCE,
+              default_vibrate_timings: true,
+            },
           },
+          data: datos,
         },
       }),
     },
@@ -109,7 +133,7 @@ async function enviarPushFCM(
   return { ok: resp.ok, status: resp.status, data };
 }
 
-// ── Plantillas de mensaje por segmento ───────────────────────────────────────
+// ── Plantillas de mensaje por segmento ────────────────────────────────────────────────────
 // El texto usa total_por_vencer (lo puntual en riesgo, genera urgencia real);
 // la bifurcación y el "faltante" usan saldo_actual (elegibilidad real de FIFO).
 function construirMensajeGrupoA(nombre: string, totalPorVencer: number) {
@@ -137,9 +161,11 @@ function construirMensajeGrupoB(nombre: string, totalPorVencer: number, faltante
 
 type ClienteEnRiesgo = {
   cliente_id: string;
+  restaurante_id: string;
   nombre: string;
   saldo_actual: number;
   total_por_vencer: number;
+  proxima_fecha_vencimiento: string | null;
   token_dispositivo: string | null;
 };
 
@@ -203,6 +229,15 @@ Deno.serve(async (req) => {
 
     const tipo = esGrupoA ? "alerta_vencimiento_apto" : "alerta_vencimiento_incentivo";
 
+    // Días restantes reales, calculados con la hora del servidor (mismo
+    // criterio que fn_obtener_puntos_por_vencer, usado por el banner del
+    // dashboard) — no una aproximación en el cliente.
+    const diasRestantes = cliente.proxima_fecha_vencimiento
+      ? Math.max(0, Math.ceil(
+          (new Date(cliente.proxima_fecha_vencimiento).getTime() - Date.now()) / 86400000,
+        ))
+      : 0;
+
     try {
       const resultado = await enviarPushFCM(
         accessToken,
@@ -210,6 +245,12 @@ Deno.serve(async (req) => {
         cliente.token_dispositivo,
         titulo,
         mensaje,
+        {
+          tipo: "VENCIMIENTO_PUNTOS",
+          restaurante_id: String(cliente.restaurante_id),
+          puntos: String(cliente.total_por_vencer),
+          dias_restantes: String(diasRestantes),
+        },
       );
 
       registros.push({
