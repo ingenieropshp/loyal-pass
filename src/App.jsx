@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { GeofencingProvider } from './components/GeofencingProvider';
 import { usePushNotifications } from './hooks/usePushNotifications';
 import { BatteryOptimizationGuide } from './components/BatteryOptimizationGuide';
+import { GuiaPermisosModal, GuiaPermisosBanner } from './components/GuiaPermisosModal';
 import { AuthScreen }       from './components/AuthScreen';
 import { ResetPassword }    from './components/ResetPassword';
 import { RegistrationForm } from './components/RegistrationForm';
@@ -614,6 +615,15 @@ function App() {
               fontSize: '0.85rem', cursor: 'pointer', opacity: 0.7,
             }}>← Buscador</button>
 
+            {/* Recordatorio discreto tras 14 días sin permisos activos — solo
+                dentro del feed principal, y solo si ya hay cliente registrado
+                (antes de eso se muestra RegistrationForm, no el feed). */}
+            {clienteId && (
+              <div style={{ width: '100%', padding: '0.5rem 0.75rem 0' }}>
+                <GuiaPermisosBanner />
+              </div>
+            )}
+
             <header style={{ textAlign: 'center', margin: '0.5rem 0 1.5rem', width: '100%' }}>
               <h1 className="brand-title">
                 {config.nombreSede}<span className="dot">.</span>
@@ -736,6 +746,11 @@ function AppConGeofencing() {
           localStorage/Capacitor.isNativePlatform(), no necesita ningún
           estado de App.jsx ni depende de en qué pantalla esté el usuario. */}
       <BatteryOptimizationGuide />
+      {/* Guía de Onboarding de Permisos: mismo patrón — se auto-controla vía
+          localStorage/Capacitor.isNativePlatform() y también escucha el
+          evento `abrirGuiaPermisos()` (acceso voluntario desde la Campanita
+          o Cuenta) sin depender de ningún estado de App.jsx. */}
+      <GuiaPermisosModal />
     </GeofencingProvider>
   );
 }

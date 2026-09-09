@@ -17,6 +17,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { chequearPermisoGPS, chequearPermisoPush, abrirConfiguracionSistema } from '../utils/permisosDispositivo';
+import { abrirGuiaPermisos } from './GuiaPermisosModal';
 
 function iconoParaTipo(tipo = '') {
   const t = String(tipo).toLowerCase();
@@ -103,6 +104,14 @@ export function CentroNotificaciones({
               Actívalos para no perderte los puntos pasivos de cercanía (200 m) ni las alertas de vencimiento.
             </p>
           )}
+          <button
+            type="button"
+            className="centro-notif-diag-btn"
+            style={{ marginTop: 8 }}
+            onClick={() => { abrirGuiaPermisos(); cerrar(); }}
+          >
+            Ver guía de permisos
+          </button>
         </div>
 
         <div className="centro-notif-list">

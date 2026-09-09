@@ -54,6 +54,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { supabase } from '../services/supabaseClient';
 import { chequearPermisoGPS, chequearPermisoPush, abrirConfiguracionSistema } from '../utils/permisosDispositivo';
+import { abrirGuiaPermisos } from './GuiaPermisosModal';
 import './CuentaScreen.css';
 
 const CAMPOS_PERFIL =
@@ -517,6 +518,14 @@ export function CuentaScreen({ clienteId, restauranteId, nombreCliente, session,
           <p className="cuenta-diagnostico-titulo">Diagnóstico rápido</p>
           <DiagnosticoLinea icono="📍" etiqueta="Permisos de Ubicación (GPS)" estado={gpsEstado} />
           <DiagnosticoLinea icono="🔔" etiqueta="Notificaciones Push" estado={pushEstado} />
+          <button
+            type="button"
+            className="cuenta-diag-btn"
+            style={{ marginTop: 8, width: '100%' }}
+            onClick={abrirGuiaPermisos}
+          >
+            Ver guía de permisos
+          </button>
         </div>
       </div>
 
