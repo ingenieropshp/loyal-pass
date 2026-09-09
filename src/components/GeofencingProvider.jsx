@@ -59,9 +59,50 @@ export function GeofencingProvider({ children }) {
   useEffect(() => {
     const cargar = async () => {
       try {
+        // Query 0 (FIX): restaurantes donde el cliente autenticado está
+        // REALMENTE registrado y activo. Antes este provider cargaba TODOS
+        // los restaurantes activos de la plataforma (query 1 de abajo, sin
+        // ningún filtro por cliente) y les registraba geocerca nativa a
+        // todos — por eso llegaban notificaciones de sedes donde el usuario
+        // nunca se había registrado (ej. "La estación de la pizza" con el
+        // dispositivo vinculado solo a "101 Bistro").
+        //
+        // OJO: no basta con confiar en RLS acá. La tabla `clientes` tiene
+        // una policy de SELECT ("Clientes ven su propio perfil") con la
+        // condición `auth_user_id = auth.uid() OR cedula IS NOT NULL` —
+        // ese "OR cedula IS NOT NULL" existe para que manejarRegistro.jsx
+        // pueda resolver el cliente_id de un referidor por nombre, pero
+        // como policy de SELECT sin filtro adicional deja leer CUALQUIER
+        // fila de `clientes` que tenga cédula (prácticamente todas), sin
+        // importar de quién sea. Si este query dependiera solo de RLS,
+        // devolvería otra vez los restaurantes de OTROS clientes. Por eso
+        // se filtra explícitamente por `auth_user_id` acá también.
+        const { data: userData } = await supabase.auth.getUser();
+        const authUserId = userData?.user?.id;
+        if (!authUserId) { setRestaurantes([]); return; }
+
+        const { data: misRegistros, error: err0 } = await supabase
+          .from('clientes')
+          .select('restaurante_id')
+          .eq('auth_user_id', authUserId)
+          .eq('activo', true);
+
+        if (err0) {
+          console.error('[GeofencingProvider] Error cargando registros del cliente:', err0.message);
+          return;
+        }
+
+        const idsRegistrados = new Set((misRegistros || []).map(r => r.restaurante_id).filter(Boolean));
+        if (idsRegistrados.size === 0) {
+          // El cliente no está registrado (o no tiene ningún registro activo)
+          // en ningún restaurante todavía — no hay nada que geocercar.
+          setRestaurantes([]);
+          return;
+        }
+
         // Query 1: coordenadas de geolocalización (tabla conexion — sin cambios,
         // esto sigue siendo geo, no algoritmo de fidelización)
-        const { data: conexiones, error: err1 } = await supabase
+        const { data: conexionesTodas, error: err1 } = await supabase
           .from('conexion')
           .select('restaurante_id, latitud, longitud, radio_aviso, mensaje_promo')
           .not('latitud', 'is', null)
@@ -72,7 +113,11 @@ export function GeofencingProvider({ children }) {
           return;
         }
 
-        if (!conexiones || conexiones.length === 0) return;
+        if (!conexionesTodas || conexionesTodas.length === 0) return;
+
+        // FIX: solo los restaurantes donde el cliente está registrado y activo.
+        const conexiones = conexionesTodas.filter(c => idsRegistrados.has(c.restaurante_id));
+        if (conexiones.length === 0) { setRestaurantes([]); return; }
 
         // Query 2: nombres y estado activo (tabla configuracion)
         const ids = conexiones.map(c => c.restaurante_id).filter(Boolean);
@@ -135,10 +180,16 @@ export function GeofencingProvider({ children }) {
 
     cargar();
 
-    // Realtime: actualizar si el admin cambia coordenadas
+    // Realtime: actualizar si el admin cambia coordenadas, o (FIX) si el
+    // propio cliente se registra/desvincula de un restaurante — antes solo
+    // escuchaba `conexion`, así que si el usuario se registraba en una sede
+    // nueva sin cerrar y reabrir la app, esa sede no se geocercaba hasta el
+    // siguiente arranque. Ahora también reacciona a cambios en `clientes`
+    // (la fuente del filtro de la query 0 de arriba).
     const channel = supabase
       .channel('geofencing-conexion')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'conexion' }, cargar)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'clientes' }, cargar)
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };

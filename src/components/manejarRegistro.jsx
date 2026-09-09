@@ -234,12 +234,27 @@ export const SuccessCard = ({
           .from('clientes').select('referidopor').eq('id', clienteId).maybeSingle();
         if (!cliente?.referidopor || cliente.referidopor === 'Directo (QR local)') return;
 
-        const { data: referidor } = await supabase
-          .from('clientes')
-          .select('id, nombre')
-          .eq('nombre', cliente.referidopor)
-          .eq('restaurante_id', restauranteId)
-          .maybeSingle();
+        // FIX seguridad: antes esto leía la fila de OTRO cliente directamente
+        // (`.from('clientes').select('id, nombre')...`), lo cual solo
+        // funcionaba porque la política de RLS "Clientes ven su propio
+        // perfil" tenía un `OR cedula IS NOT NULL` demasiado amplio — dejaba
+        // que cualquier cliente autenticado leyera la fila de cualquier
+        // otro. Esa política ya se eliminó (ver migración
+        // acotar_rls_clientes_y_rpc_referidor_seguro), así que ahora se
+        // resuelve el referidor con una función de servidor (SECURITY
+        // DEFINER) que SOLO devuelve id + nombre — nunca teléfono, cédula,
+        // fecha de nacimiento ni saldo — y mantiene el mismo alcance que ya
+        // tenía este código (mismo restaurante, coincidencia de nombre).
+        const { data: referidorRows, error: errorReferidor } = await supabase.rpc(
+          'fn_buscar_referidor_seguro',
+          { p_restaurante_id: restauranteId, p_nombre: cliente.referidopor }
+        );
+        if (errorReferidor) {
+          console.warn('[manejarRegistro] Error buscando referidor:', errorReferidor.message);
+        }
+        const referidor = referidorRows?.[0]
+          ? { id: referidorRows[0].cliente_id, nombre: referidorRows[0].nombre_publico }
+          : null;
 
         if (referidor) {
           // Antes esto hacía un UPDATE directo sobre `clientes.saldo_puntos`
