@@ -29,6 +29,12 @@ export const RegistrationForm = ({ onSuccess, user, restaurantId, referidoPor, e
   const [formData, setFormData] = useState({ nombre: '', telefono: '', fechaNacimiento: '', cedula: '' });
   const [loading,  setLoading]  = useState(false);
   const [mostrarTerminos, setMostrarTerminos] = useState(false);
+  // Aceptación explícita de Términos y Condiciones — antes el enlace solo
+  // abría el modal informativo y el formulario se podía enviar sin haberlo
+  // siquiera abierto. Ahora es un checkbox obligatorio (validado en dos
+  // capas, igual que teléfono/cédula: `required` nativo + chequeo en
+  // handleSubmit) que debe estar marcado para poder unirse al club.
+  const [terminosAceptados, setTerminosAceptados] = useState(false);
 
   const hoy = new Date();
   const fechaMaxima = hoy.toISOString().split('T')[0];
@@ -62,7 +68,7 @@ export const RegistrationForm = ({ onSuccess, user, restaurantId, referidoPor, e
       return;
     }
     if (!formData.nombre.trim() || !formData.telefono.trim() || !formData.fechaNacimiento || !formData.cedula.trim()) {
-      alert('Por favor, completa todos los campos.');
+      alert('Por favor, completa todos los campos. El teléfono y la cédula son obligatorios.');
       return;
     }
     if (!/^\d{10}$/.test(formData.telefono.trim())) {
@@ -71,6 +77,10 @@ export const RegistrationForm = ({ onSuccess, user, restaurantId, referidoPor, e
     }
     if (!/^\d{6,10}$/.test(formData.cedula.trim())) {
       alert('La cédula debe tener entre 6 y 10 dígitos, sin puntos ni espacios.');
+      return;
+    }
+    if (!terminosAceptados) {
+      alert('Debes aceptar los Términos y Condiciones para unirte al club.');
       return;
     }
     setLoading(true);
@@ -143,7 +153,7 @@ export const RegistrationForm = ({ onSuccess, user, restaurantId, referidoPor, e
         </div>
 
         <div style={styles.field}>
-          <label style={styles.label} htmlFor="whatsapp">Teléfono / WhatsApp</label>
+          <label style={styles.label} htmlFor="whatsapp">Teléfono / WhatsApp <span style={styles.requiredMark}>*</span></label>
           <div style={styles.phoneRow}>
             <span style={styles.phonePrefix}>+57</span>
             <input id="whatsapp" type="tel" required inputMode="numeric" pattern="[0-9]{10}"
@@ -154,7 +164,7 @@ export const RegistrationForm = ({ onSuccess, user, restaurantId, referidoPor, e
         </div>
 
         <div style={styles.field}>
-          <label style={styles.label} htmlFor="cedula">Cédula</label>
+          <label style={styles.label} htmlFor="cedula">Cédula <span style={styles.requiredMark}>*</span></label>
           <input id="cedula" type="text" required inputMode="numeric" pattern="[0-9]{6,10}"
             maxLength={10} placeholder="Ej: 1017123456" style={styles.input}
             value={formData.cedula} onChange={handleChange}
@@ -168,11 +178,34 @@ export const RegistrationForm = ({ onSuccess, user, restaurantId, referidoPor, e
             autoComplete="off" />
         </div>
 
+        {/* Aceptación obligatoria de Términos y Condiciones — checkbox real,
+            no solo un enlace informativo. El formulario no se puede enviar
+            (ni nativa ni vía handleSubmit) sin marcarlo. */}
+        <label style={styles.checkboxRow} htmlFor="aceptaTerminos">
+          <input
+            id="aceptaTerminos"
+            type="checkbox"
+            required
+            checked={terminosAceptados}
+            onChange={(e) => setTerminosAceptados(e.target.checked)}
+            style={styles.checkbox}
+          />
+          <span style={styles.checkboxLabel}>
+            Acepto los{' '}
+            <span
+              style={styles.termsInlineLink}
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setMostrarTerminos(true); }}
+            >
+              Términos y Condiciones
+            </span>
+          </span>
+        </label>
+
         {/* Submit */}
-        <button type="submit" disabled={loading} style={{
+        <button type="submit" disabled={loading || !terminosAceptados} style={{
           ...styles.btnJoin,
-          opacity: loading ? 0.75 : 1,
-          cursor:  loading ? 'not-allowed' : 'pointer',
+          opacity: (loading || !terminosAceptados) ? 0.5 : 1,
+          cursor:  (loading || !terminosAceptados) ? 'not-allowed' : 'pointer',
         }}>
           {loading ? (
             <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
@@ -180,13 +213,6 @@ export const RegistrationForm = ({ onSuccess, user, restaurantId, referidoPor, e
             </span>
           ) : 'Unirme al club →'}
         </button>
-
-      
-
-        {/* Terms link */}
-        <p style={styles.termsLink} onClick={() => setMostrarTerminos(true)}>
-          * Al unirte aceptas los Términos y Condiciones
-        </p>
 
         <p style={styles.secureNote}>🔒 Tus datos están protegidos</p>
       </form>
@@ -340,6 +366,32 @@ const styles = {
     cursor: 'pointer',
     textAlign: 'center',
     fontStyle: 'italic',
+  },
+  requiredMark: { color: 'var(--coral)' },
+  checkboxRow: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: 8,
+    margin: '4px 0 14px',
+    cursor: 'pointer',
+  },
+  checkbox: {
+    marginTop: 2,
+    width: 16,
+    height: 16,
+    flexShrink: 0,
+    accentColor: 'var(--coral)',
+    cursor: 'pointer',
+  },
+  checkboxLabel: {
+    fontSize: '0.78rem',
+    color: 'var(--text)',
+    lineHeight: 1.4,
+  },
+  termsInlineLink: {
+    color: 'var(--coral)',
+    textDecoration: 'underline',
+    cursor: 'pointer',
   },
   secureNote: {
     marginTop: 8,
