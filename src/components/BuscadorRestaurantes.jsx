@@ -44,60 +44,96 @@ export const BuscadorRestaurantes = ({ session, onLogout }) => {
   // salida clara ("Más tarde"/"✕") para quien solo estaba explorando.
   const [restauranteAUnirse, setRestauranteAUnirse] = useState(null); // { id, nombre } | null
 
-  useEffect(() => {
-    const cargar = async () => {
-      setCargando(true);
-      try {
-        const { data, error: err } = await supabase
-          .from('configuracion')
-          .select('id, nombre')
-          .order('nombre', { ascending: true });
-        if (err) throw err;
-        setRestaurantes(data || []);
+  // FIX (pantalla completa bloqueada justo después de iniciar sesión):
+  // antes, la lista pública de restaurantes (query 1, sin RLS — cualquiera
+  // la lee) y "mis restaurantes" (query 2, requiere sesión) compartían un
+  // mismo try/catch y un mismo estado `error`, y el render de la lista
+  // entera estaba condicionado a `!error` (ver más abajo,
+  // `{!cargando && !error && (<lista>)}`). Si la query 2 fallaba por
+  // CUALQUIER motivo — incluido, justo después de un login recién hecho,
+  // que la primera petición autenticada salga antes de que el token nuevo
+  // termine de propagarse — se perdía TAMBIÉN la lista pública, que ya
+  // había cargado bien, y no había ningún botón real para reintentar pese
+  // a que el mensaje lo prometía ("Intenta de nuevo"). Ahora cada query
+  // tiene su propio manejo de error: si falla la 1 (la que de verdad
+  // bloquea, porque sin ella no hay nada que mostrar), se ve el error CON
+  // un botón de reintentar de verdad; si falla la 2, la lista se ve igual,
+  // solo sin el estado de "ya inscrito" en las tarjetas, con un reintento
+  // silencioso automático por si fue justo esa carrera del token.
+  const cargarRestaurantes = async () => {
+    setCargando(true);
+    setError(null);
+    try {
+      const { data, error: err } = await supabase
+        .from('configuracion')
+        .select('id, nombre')
+        .order('nombre', { ascending: true });
+      if (err) throw err;
+      setRestaurantes(data || []);
+    } catch (e) {
+      console.error('[BuscadorRestaurantes] Error cargando restaurantes:', e);
+      setError('No pudimos cargar los restaurantes.');
+      setCargando(false);
+      return;
+    }
+    setCargando(false);
+  };
 
-        // ── Restaurantes donde el usuario YA está inscrito ────────────────
-        // Antes esto se leía de localStorage (loyalpass_multisede), lo que
-        // significaba que si el usuario borraba la app o cambiaba de
-        // dispositivo, perdía la vista de "Mis restaurantes" aunque sus
-        // puntos seguían intactos en la base de datos. Ahora se consulta
-        // directamente por `auth_user_id`, que es la cuenta global — así
-        // esta lista es la misma sin importar desde dónde entre.
-        if (session?.user?.id) {
-          const { data: clientesData, error: errCli } = await supabase
-            .from('clientes')
-            .select('id, nombre, saldo_puntos, ciclos_completados, restaurante_id')
-            .eq('auth_user_id', session.user.id)
-            // FIX: sin este filtro, un restaurante del que el usuario se
-            // desvinculó voluntariamente (fn_cliente_desvincula_restaurante
-            // → activo=false) volvía a aparecer en "Mis restaurantes" en
-            // cada recarga — la fila de `clientes` sigue existiendo (ahora
-            // en 0 pts), solo queda desactivada. "activo=true" es lo que
-            // realmente define pertenencia vigente a la sede.
-            .eq('activo', true);
-          if (errCli) throw errCli;
+  // ── Restaurantes donde el usuario YA está inscrito ──────────────────────
+  // Antes esto se leía de localStorage (loyalpass_multisede), lo que
+  // significaba que si el usuario borraba la app o cambiaba de dispositivo,
+  // perdía la vista de "Mis restaurantes" aunque sus puntos seguían
+  // intactos en la base de datos. Ahora se consulta directamente por
+  // `auth_user_id`, que es la cuenta global — así esta lista es la misma
+  // sin importar desde dónde entre.
+  const cargarMisRestaurantes = async (esReintento = false) => {
+    try {
+      const { data: clientesData, error: errCli } = await supabase
+        .from('clientes')
+        .select('id, nombre, saldo_puntos, ciclos_completados, restaurante_id')
+        .eq('auth_user_id', session.user.id)
+        // FIX: sin este filtro, un restaurante del que el usuario se
+        // desvinculó voluntariamente (fn_cliente_desvincula_restaurante →
+        // activo=false) volvía a aparecer en "Mis restaurantes" en cada
+        // recarga — la fila de `clientes` sigue existiendo (ahora en 0
+        // pts), solo queda desactivada. "activo=true" es lo que realmente
+        // define pertenencia vigente a la sede.
+        .eq('activo', true);
+      if (errCli) throw errCli;
 
-          const mapa = {};
-          (clientesData || []).forEach(c => {
-            mapa[c.restaurante_id] = {
-              puntos:    c.saldo_puntos || 0,
-              ciclos:    c.ciclos_completados || 0,
-              nombre:    c.nombre,
-              // id real de la fila de `clientes` para esta sede — necesario
-              // para asociar la suscripción push (push_subscriptions) con
-              // este cliente y poder personalizar sus notificaciones.
-              clienteId: c.id,
-            };
-          });
-          setDatosPorSede(mapa);
-        }
-      } catch (e) {
-        console.error(e);
-        setError('No pudimos cargar los restaurantes. Intenta de nuevo.');
-      } finally {
-        setCargando(false);
+      const mapa = {};
+      (clientesData || []).forEach(c => {
+        mapa[c.restaurante_id] = {
+          puntos:    c.saldo_puntos || 0,
+          ciclos:    c.ciclos_completados || 0,
+          nombre:    c.nombre,
+          // id real de la fila de `clientes` para esta sede — necesario
+          // para asociar la suscripción push (push_subscriptions) con este
+          // cliente y poder personalizar sus notificaciones.
+          clienteId: c.id,
+        };
+      });
+      setDatosPorSede(mapa);
+    } catch (e) {
+      if (!esReintento) {
+        // Un solo reintento, medio segundo después y sin avisarle nada al
+        // usuario — cubre el caso de una petición autenticada disparada
+        // demasiado pronto después de un login recién hecho.
+        setTimeout(() => cargarMisRestaurantes(true), 600);
+        return;
       }
-    };
-    cargar();
+      // Ya reintentado y sigue fallando: no bloqueante — el usuario
+      // simplemente no ve todavía el estado de "ya inscrito" en sus
+      // tarjetas. Se deja pasar en silencio (con log) en vez de tumbarle
+      // la pantalla completa por un dato secundario.
+      console.warn('[BuscadorRestaurantes] No se pudo cargar "mis restaurantes":', e?.message || e);
+    }
+  };
+
+  useEffect(() => {
+    cargarRestaurantes();
+    if (session?.user?.id) cargarMisRestaurantes();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.user?.id]);
 
   // Navega a la vista de la sede. App.jsx verifica ahí si el usuario ya
@@ -301,7 +337,30 @@ export const BuscadorRestaurantes = ({ session, onLogout }) => {
           </div>
         )}
 
-        {error && <div className="error-alert">⚠️ {error}</div>}
+        {error && (
+          <div className="error-alert" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+            <span>⚠️ {error}</span>
+            {/* FIX: el texto ya decía "Intenta de nuevo" pero no existía ningún
+                botón — la única forma de reintentar era cerrar y reabrir la app. */}
+            <button
+              type="button"
+              onClick={cargarRestaurantes}
+              style={{
+                background: 'transparent',
+                border: '1px solid currentColor',
+                borderRadius: 8,
+                padding: '4px 10px',
+                fontSize: '0.75rem',
+                fontWeight: 700,
+                color: 'inherit',
+                cursor: 'pointer',
+                flexShrink: 0,
+              }}
+            >
+              Reintentar
+            </button>
+          </div>
+        )}
 
         {!cargando && !error && (
           <div style={styles.list}>
