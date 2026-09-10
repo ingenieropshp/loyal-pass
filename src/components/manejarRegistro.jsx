@@ -73,6 +73,44 @@ async function obtenerPosicionActual() {
 }
 
 /**
+ * obtenerCiudadYLocalidad
+ * ────────────────────────────────────────────────────────────────────────
+ * Geocodificación inversa (pedido explícito del usuario — sept 2026):
+ * convierte unas coordenadas GPS en nombre de ciudad/municipio y de
+ * barrio/vereda, usando Nominatim (OpenStreetMap) — servicio GRATUITO, sin
+ * API key ni cuenta (el usuario eligió esta opción sobre Google Maps de
+ * pago). `addressdetails=1` es lo que hace que la respuesta traiga el
+ * objeto `address` desglosado en vez de solo un texto plano.
+ *
+ * Nominatim no siempre usa el mismo nombre de campo para "ciudad" — varía
+ * según qué tan grande sea el lugar (una capital trae `city`, un municipio
+ * chico como Apartadó puede traer `town` o `municipality`) — por eso se
+ * prueban varios campos en cascada. Lo mismo para "localidad"
+ * (barrio/vereda): `suburb`/`neighbourhood` en zona urbana,
+ * `village`/`hamlet` en zona rural.
+ *
+ * Nunca lanza: si la consulta falla (sin internet, Nominatim caído, etc.)
+ * devuelve { ciudad: null, localidad: null } para que el llamador guarde
+ * NULL en vez de romper el flujo de bienvenida.
+ */
+async function obtenerCiudadYLocalidad(lat, lon) {
+  try {
+    const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lon}&addressdetails=1&accept-language=es&zoom=16`;
+    const res = await fetch(url, { headers: { Accept: 'application/json' } });
+    if (!res.ok) return { ciudad: null, localidad: null };
+    const data = await res.json();
+    const addr = data?.address || {};
+    const ciudad =
+      addr.city || addr.town || addr.municipality || addr.county || null;
+    const localidad =
+      addr.suburb || addr.neighbourhood || addr.quarter || addr.village || addr.hamlet || null;
+    return { ciudad, localidad };
+  } catch {
+    return { ciudad: null, localidad: null };
+  }
+}
+
+/**
  * SuccessCard — pantalla mostrada justo después de un registro exitoso.
  * Props:
  *   restauranteId, nombreRestaurante, nombreCliente,
@@ -224,6 +262,48 @@ export const SuccessCard = ({
     };
     intentarBonoProximidad();
   }, [restauranteId]);
+
+  // Captura de ciudad/localidad (pedido explícito del usuario — sept 2026)
+  // ──────────────────────────────────────────────────────────────────────
+  // A propósito es un efecto INDEPENDIENTE del de arriba (bono de
+  // proximidad), aunque los dos piden GPS: ese efecto puede cortar temprano
+  // si no logra leer la config de geocerca del restaurante (`conexion`), y
+  // esta captura de ubicación no debería depender de eso — el objetivo acá
+  // es simplemente saber de dónde es el cliente, sin importar si está cerca
+  // o lejos del local en este momento (alguien puede registrarse desde su
+  // casa, en otro barrio o incluso otro municipio).
+  //
+  // 100% "fire and forget", igual que el bono de proximidad: nunca bloquea
+  // la pantalla de bienvenida, nunca muestra un error al cliente. Si no da
+  // permiso de ubicación, o el dispositivo no tiene GPS (ej. escritorio),
+  // o falla la consulta a Nominatim, `clientes.ciudad`/`localidad`
+  // simplemente quedan en NULL — el panel admin ya maneja ese caso como
+  // "Sin ubicación" en vez de inventar un dato.
+  useEffect(() => {
+    const capturarUbicacionRegistro = async () => {
+      if (!clienteId) return;
+      if (!('geolocation' in navigator)) return;
+      try {
+        const posicion = await obtenerPosicionActual();
+        const { ciudad, localidad } = await obtenerCiudadYLocalidad(
+          posicion.coords.latitude,
+          posicion.coords.longitude
+        );
+        if (!ciudad && !localidad) return; // nada que guardar
+        const { error } = await supabase
+          .from('clientes')
+          .update({ ciudad, localidad })
+          .eq('id', clienteId);
+        if (error) {
+          console.warn('[SuccessCard] No se pudo guardar ciudad/localidad:', error.message);
+        }
+      } catch (err) {
+        // Best-effort, igual que el bono de proximidad — no bloquea nada.
+        console.warn('[SuccessCard] No se pudo capturar ciudad/localidad —', describirErrorGeolocalizacion(err));
+      }
+    };
+    capturarUbicacionRegistro();
+  }, [clienteId]);
 
   // Registrar referido si aplica
   useEffect(() => {
