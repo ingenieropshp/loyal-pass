@@ -1,1 +1,6 @@
-/*  /index.html  200
+# Este archivo se dejó vacío a propósito.
+# La regla "/* /index.html 200" que tenía antes entraba en conflicto con
+# "not_found_handling": "single-page-application" de wrangler.jsonc, que ya
+# hace el mismo trabajo (servir index.html para cualquier ruta no encontrada)
+# a nivel de Cloudflare Workers. Tener ambas cosas a la vez provocaba el
+# error de despliegue "Infinite loop detected" (code: 100324).
