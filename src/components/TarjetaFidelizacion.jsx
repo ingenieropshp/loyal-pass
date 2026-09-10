@@ -28,7 +28,17 @@
  * nivel que la caja usó para calcular sus puntos.
  */
 
-import { useId, useMemo } from 'react';
+import { useId, useMemo, useState } from 'react';
+import { QRCodeCanvas } from 'qrcode.react';
+
+// ── Código personal para pagar sin cédula ───────────────────────────────────
+// El cajero, desde el panel admin, puede escanear este QR en vez de pedirle
+// la cédula al cliente (ver EscanearQRCliente.jsx en bistro-admin). El QR
+// solo trae el UUID del cliente con un prefijo fijo — no es un secreto ni
+// una credencial: identifica al cliente exactamente igual que hoy lo hace
+// decir su cédula en voz alta, y el backend (fn_registrar_consumo) igual
+// valida que ese cliente pertenezca al restaurante donde se está cobrando.
+export const PREFIJO_QR_CLIENTE = 'LOYALPASS_CLIENTE:';
 
 // ── Definición de niveles ────────────────────────────────────────────────────
 // Escala oficial y multiplicadores (SOLO se aplican a los puntos de
@@ -63,6 +73,7 @@ export function TarjetaFidelizacion({
 }) {
   const nivel          = useMemo(() => getNivel(puntosTotales), [puntosTotales]);
   const siguienteNivel = useMemo(() => getSiguienteNivel(puntosTotales), [puntosTotales]);
+  const [mostrarQR, setMostrarQR] = useState(false);
 
   const progresoNivel = siguienteNivel
     ? Math.min((puntosTotales - nivel.min) / (siguienteNivel.min - nivel.min), 1)
@@ -207,6 +218,47 @@ export function TarjetaFidelizacion({
           )}
         </div>
       </div>
+
+      {/* ── Código para pagar sin cédula ──────────────────────────────── */}
+      {cliente?.id && (
+        <div style={{ marginTop: 16, paddingTop: 14, borderTop: '1px solid rgba(212,175,55,0.18)' }}>
+          {!mostrarQR ? (
+            <button
+              onClick={() => setMostrarQR(true)}
+              style={{
+                width: '100%', padding: '10px 14px', borderRadius: 10,
+                background: 'rgba(212,175,55,0.10)', border: '1px solid rgba(212,175,55,0.4)',
+                color: '#D4AF37', fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer',
+              }}
+            >
+              📷 Mostrar código para pagar sin cédula
+            </button>
+          ) : (
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ background: '#fff', display: 'inline-block', padding: 10, borderRadius: 12 }}>
+                <QRCodeCanvas
+                  value={`${PREFIJO_QR_CLIENTE}${cliente.id}`}
+                  size={150}
+                  includeMargin={false}
+                  level="M"
+                />
+              </div>
+              <p style={{ margin: '10px 0 0', fontSize: '0.72rem', opacity: 0.65 }}>
+                Muéstralo en caja para pagar sin dar tu cédula.
+              </p>
+              <button
+                onClick={() => setMostrarQR(false)}
+                style={{
+                  marginTop: 8, background: 'transparent', border: 'none',
+                  color: '#D4AF37', fontSize: '0.75rem', cursor: 'pointer', textDecoration: 'underline',
+                }}
+              >
+                Ocultar
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Anima el dial dorado de 0 al valor real cada vez que cambia el saldo/nivel */}
       <style>{`
