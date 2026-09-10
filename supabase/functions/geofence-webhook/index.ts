@@ -56,7 +56,7 @@
 // v4 (rediseño de CuentaScreen.jsx — toggle "Proximidad GPS"): antes de
 // enviar el push se consulta `clientes.notif_proximidad_activa` y, si el
 // cliente lo desactivó desde su perfil, se omite el envío (los puntos se
-// siguen acreditando igual — ver el comentario de notificarBonoGeocerca).
+// siguen acreditando igual — ver el comentario de notificarVisitaGeocerca).
 //
 // v5 (payload de alta prioridad + canal + datos de ruteo — configuración
 // completa de push por geocerca):
@@ -100,9 +100,52 @@
 // los restaurantes; si más adelante se necesita un horario configurable
 // por local, esto es lo primero que habría que parametrizar ahí.
 //
-// Además, dentro de horario, el mensaje del push ahora es contextual según
-// la franja (un texto para almuerzo, otro para cena) en vez del genérico
-// "Se acreditaron X puntos..." de antes.
+// v7 (push en TODA entrada a la geocerca, no solo cuando hay bono — pedido
+// explícito del usuario, probando el flujo en vivo): antes, esta función
+// solo llamaba a notificarVisitaGeocerca (antes "notificarBonoGeocerca")
+// cuando `bonificado=true` — es decir, únicamente la PRIMERA entrada del
+// día, porque fn_evento_geocerca limita el bono a una vez por día
+// calendario (esa regla de negocio NO cambia acá, sigue siendo así en la
+// base de datos: es la protección anti-fraude GPS del proyecto). El
+// problema es que esto también apagaba el push por completo en cualquier
+// entrada posterior del mismo día, aunque el cliente sí haya vuelto a
+// pasar cerca. Ahora se notifica en CADA entrada a la geocerca dentro de
+// horario comercial (si el cliente tiene la preferencia activa), haya o
+// no puntos de por medio — el mensaje cambia según corresponda:
+//   - Si `puntos > 0` (primera vez del día): el mensaje de siempre,
+//     mencionando los puntos ganados.
+//   - Si `puntos === 0` (ya se usó el bono hoy, o el cliente redimió hoy —
+//     ver fn_redimio_hoy dentro de fn_evento_geocerca): un mensaje
+//     distinto que NO menciona puntos ganados, para no decir algo falso.
+// Se sigue sin notificar en eventos de SALIDA (esEntrada=false) ni cuando
+// fn_evento_geocerca devuelve motivo='cliente_inactivo' (cliente
+// desvinculado del restaurante) — eso no cambió.
+//
+// ADVERTENCIA para quien lea esto más adelante: con este cambio, un
+// cliente que pase varias veces por el mismo lugar en un mismo día (por
+// ejemplo si vive cerca) va a recibir varias notificaciones ese día, no
+// solo una — antes del v7 eso no pasaba porque el push dependía del bono.
+// Si en algún momento eso resulta molesto para los clientes reales, la
+// solución sería agregar un límite de "un push de este tipo por día"
+// separado del límite de puntos (que es independiente y no se toca acá).
+//
+// v8 (texto del mensaje sin bono — pedido explícito del usuario, después
+// de ver en un teléfono real el mensaje que puso el v7): reemplaza el
+// mensaje de "ya alcanzaste tu bono de hoy" por un único texto de
+// bienvenida (igual en almuerzo y en cena), con dos restricciones
+// explícitas: no mencionar "cédula" ni "código QR"/"QR", y no prometer
+// puntos de cercanía duplicados — el cajero sigue siendo quien registra
+// el consumo con la cédula del cliente, este push es solo un saludo. Ver
+// el bloque `if (puntos > 0)` / resto de la función mensajePorFranja más
+// abajo para el detalle exacto del texto.
+//
+// v9 (ajuste de texto — pedido explícito del usuario, tras probar el v8 en
+// un teléfono real): al título del mensaje sin bono se le agrega "estás
+// cerca de", quedando "📍 ¡Hola de nuevo, estás cerca de {restaurante}!".
+// El cuerpo no cambia. Se aprovechó este mismo despliegue para revertir la
+// ventana de horario comercial de cena a su valor real (22:30) — la
+// ampliación temporal hasta las 23:59 solo era para poder probar el
+// mensaje del v8 esa misma noche.
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { SignJWT, importPKCS8 } from 'https://esm.sh/jose@5';
 
@@ -144,6 +187,9 @@ type FranjaHoraria = 'almuerzo' | 'cena' | null;
 const INICIO_ALMUERZO_MIN = 11 * 60 + 30; // 11:30
 const FIN_ALMUERZO_MIN    = 15 * 60;      // 15:00
 const INICIO_CENA_MIN     = 18 * 60 + 30; // 18:30
+// Revertido a las 22:30 (valor real de negocio) — la ampliación temporal
+// hasta las 23:59 era solo para la prueba de esta noche del mensaje v8/v9;
+// el usuario ya confirmó que la notificación de prueba llegó bien.
 const FIN_CENA_MIN        = 22 * 60 + 30; // 22:30
 
 function obtenerFranjaHorariaColombia(): FranjaHoraria {
@@ -163,21 +209,38 @@ function obtenerFranjaHorariaColombia(): FranjaHoraria {
   return null;
 }
 
-// ── v6: mensaje contextual del push según la franja horaria ──────────────
+// ── v6/v7: mensaje contextual del push según la franja horaria y si esta
+// entrada trajo puntos nuevos o no (ver comentario v7 más arriba) ─────────
 function mensajePorFranja(
   franja: Exclude<FranjaHoraria, null>,
   nombreRestaurante: string,
   puntos: number,
 ): { titulo: string; cuerpo: string } {
-  if (franja === 'almuerzo') {
+  if (puntos > 0) {
+    if (franja === 'almuerzo') {
+      return {
+        titulo: `📍 ¡Hora de almorzar en ${nombreRestaurante}!`,
+        cuerpo: `Tienes ${puntos} puntos acumulados para disfrutar hoy.`,
+      };
+    }
     return {
-      titulo: `📍 ¡Hora de almorzar en ${nombreRestaurante}!`,
-      cuerpo: `Tienes ${puntos} puntos acumulados para disfrutar hoy.`,
+      titulo: `🌙 Termina tu día en ${nombreRestaurante}`,
+      cuerpo: `¡Acumula puntos con tu visita hoy! Recién ganaste ${puntos} pts.`,
     };
   }
+
+  // v9 (pedido explícito del usuario, tras probar el mensaje del v8 en un
+  // teléfono real): se agrega "estás cerca de" al título, para que quede
+  // claro que el aviso es porque el cliente está físicamente cerca del
+  // local — ya se usó el bono de geocerca hoy (o el cliente redimió hoy),
+  // un único texto para almuerzo y cena por igual (no varía por franja, a
+  // diferencia del caso con puntos). A propósito NO menciona "cédula",
+  // "código QR"/"QR" ni promete puntos de cercanía duplicados — el
+  // cajero sigue siendo quien registra el consumo con la cédula, esto es
+  // solo un saludo de bienvenida.
   return {
-    titulo: `🌙 Termina tu día en ${nombreRestaurante}`,
-    cuerpo: `¡Acumula puntos con tu visita hoy! Recién ganaste ${puntos} pts.`,
+    titulo: `📍 ¡Hola de nuevo, estás cerca de ${nombreRestaurante}!`,
+    cuerpo: 'Disfruta tu visita y acumula puntos por tus consumos de hoy.',
   };
 }
 
@@ -256,14 +319,18 @@ async function enviarPushFCM(
   return { ok: resp.ok, status: resp.status, data };
 }
 
-async function notificarBonoGeocerca(deviceId: string, restauranteId: string, clienteId: string, puntos: number): Promise<void> {
+// v7: renombrada de "notificarBonoGeocerca" — ya no notifica solo cuando
+// hay bono, sino en toda entrada válida a la geocerca (ver comentario v7
+// arriba del archivo). `puntos` puede ser 0.
+async function notificarVisitaGeocerca(deviceId: string, restauranteId: string, clienteId: string, puntos: number): Promise<void> {
   try {
-    // v6: fuera de horario comercial no se envía push — los puntos ya
-    // quedaron acreditados por fn_evento_geocerca en el handler principal,
-    // esto solo decide si se molesta o no al cliente con una notificación.
+    // v6: fuera de horario comercial no se envía push — los puntos (si los
+    // hay) ya quedaron acreditados por fn_evento_geocerca en el handler
+    // principal, esto solo decide si se molesta o no al cliente con una
+    // notificación.
     const franja = obtenerFranjaHorariaColombia();
     if (!franja) {
-      console.log('[geofence-webhook] Fuera de horario comercial (almuerzo/cena) — se omite el push de FCM. Puntos ya acreditados en el Ledger.');
+      console.log('[geofence-webhook] Fuera de horario comercial (almuerzo/cena) — se omite el push de FCM.');
       return;
     }
 
@@ -370,7 +437,10 @@ Deno.serve(async (req) => {
 
   // Nota (v6): esta llamada NO cambia — el evento de geocerca se registra y
   // los puntos se acreditan SIEMPRE, sin importar la hora. El filtro de
-  // horario comercial solo aplica más abajo, a la notificación push.
+  // horario comercial solo aplica más abajo, a la notificación push. La
+  // regla de "el bono solo se otorga una vez por día calendario" vive acá
+  // adentro (fn_evento_geocerca) y NO cambia con el v7 — lo único que
+  // cambió es que ahora SÍ se notifica aunque esta llamada ya no dé puntos.
   const { data, error } = await supabaseAdmin.rpc('fn_evento_geocerca', {
     p_cliente_id: dispositivo.cliente_id,
     p_restaurante_id: restauranteId,
@@ -382,8 +452,13 @@ Deno.serve(async (req) => {
     return jsonResponse({ ok: false, motivo: 'error_interno' }, 500);
   }
 
-  if (data?.bonificado && typeof data?.puntos === 'number' && data.puntos > 0) {
-    await notificarBonoGeocerca(deviceId, restauranteId, dispositivo.cliente_id, data.puntos);
+  // v7: antes era `if (data?.bonificado && puntos > 0)` — solo notificaba
+  // cuando había bono. Ahora se notifica en toda ENTRADA válida (no en
+  // salida, y no si el cliente está inactivo en este restaurante), haya o
+  // no puntos; el mensaje se adapta adentro de notificarVisitaGeocerca.
+  if (esEntrada && data?.motivo !== 'cliente_inactivo') {
+    const puntosGanados = typeof data?.puntos === 'number' ? data.puntos : 0;
+    await notificarVisitaGeocerca(deviceId, restauranteId, dispositivo.cliente_id, puntosGanados);
   }
 
   return jsonResponse(data, 200);

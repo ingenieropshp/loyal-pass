@@ -78,16 +78,18 @@ async function guardarTokenEnSupabase(token) {
  * Crea (o confirma) el canal nativo de Android que usa el backend en
  * `android.notification.channel_id` (ver geofence-webhook/index.ts). Es EL
  * MISMO canal que `useGeofencing.js` ya crea para las notificaciones
- * locales de geocerca (`CANAL_ID_GEOFENCE = 'geofence-alerts'`) — no uno
- * nuevo: los canales de notificación son un recurso del sistema operativo
- * compartido entre plugins de Capacitor, y crear dos canales casi
- * idénticos ("geofence-alerts" vs "geofence_alerts") confundiría al
- * usuario en Ajustes → Notificaciones sin ningún beneficio. Se llama acá
- * TAMBIÉN (además de en useGeofencing.js) porque un push puede llegar
- * antes de que el usuario haya cargado nunca ningún restaurante con
- * geocerca configurada — crear un canal ya existente con el mismo ID es
- * una operación segura y sin efecto en Android (gana la primera
- * definición, esta llamada es un no-op si ya se creó antes).
+ * locales de geocerca (`CANAL_ID_GEOFENCE`, hoy `'geofence-alerts-v2'` —
+ * ver el comentario junto a esa constante para el porqué del sufijo "v2")
+ * — no uno nuevo: los canales de notificación son un recurso del sistema
+ * operativo compartido entre plugins de Capacitor, y crear dos canales
+ * casi idénticos confundiría al usuario en Ajustes → Notificaciones sin
+ * ningún beneficio. Se llama acá TAMBIÉN (además de en useGeofencing.js)
+ * porque un push puede llegar antes de que el usuario haya cargado nunca
+ * ningún restaurante con geocerca configurada — crear un canal ya
+ * existente con el mismo ID es una operación segura y sin efecto en
+ * Android (gana la primera definición, esta llamada es un no-op si ya se
+ * creó antes — por eso las dos definiciones DEBEN pedir exactamente lo
+ * mismo, sonido incluido: ver el fix aplicado en useGeofencing.js).
  */
 async function asegurarCanalPush() {
   if (Capacitor.getPlatform() !== 'android') return;

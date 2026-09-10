@@ -84,7 +84,25 @@ import { getDeviceId } from '../utils/deviceId';
 // @capacitor/push-notifications: si un push FCM llega con un `channel_id`
 // que no coincide carácter por carácter con uno ya creado, Android lo
 // descarta en silencio (no lanza error, simplemente no se muestra nada).
-export const CANAL_ID_GEOFENCE = 'geofence-alerts';
+//
+// FIX SONIDO (bug real encontrado probando en un teléfono real): este
+// archivo creaba el canal vía `LocalNotifications.createChannel` SIN
+// `sound`/`vibration` (ver asegurarCanalNotificacionNativo más abajo),
+// mientras que usePushNotifications.js lo creaba vía
+// `PushNotifications.createChannel` SÍ con sonido. Android congela la
+// configuración de un canal (sonido, vibración, importancia) la PRIMERA
+// vez que se crea con un ID dado — ninguna llamada posterior con el mismo
+// ID puede cambiarla, la cambie o no el código. Si esta versión (sin
+// sonido) corría primero en el teléfono, el canal quedaba mudo para
+// siempre, sin importar que usePushNotifications.js sí pidiera sonido.
+// Se corrige en dos partes: (1) abajo, asegurarCanalNotificacionNativo ya
+// pide sonido también, para que sea consistente diga quien diga la
+// primera palabra; (2) se cambia el ID del canal a 'geofence-alerts-v2'
+// para que los dispositivos que YA tenían el canal viejo (mudo, ya
+// congelado) reciban uno nuevo desde cero con el sonido bien puesto —
+// cambiar los campos de un canal existente no tiene efecto en Android, la
+// única forma de "resetearlo" es usar un ID distinto.
+export const CANAL_ID_GEOFENCE = 'geofence-alerts-v2';
 
 // Edge Function de Supabase. Recibe tanto el POST nativo del plugin (app
 // cerrada, ver setupGeofencing más abajo) como el POST directo que este
@@ -241,6 +259,13 @@ async function asegurarCanalNotificacionNativo() {
       description: 'Avisos cuando estás cerca de un restaurante afiliado',
       importance: 5, // IMPORTANCE_HIGH → heads-up + sonido
       visibility: 1,
+      // FIX SONIDO: antes faltaban estos dos campos acá — importance:5 por
+      // sí solo NO garantiza sonido en todos los fabricantes/versiones de
+      // Android, hay que pedirlo explícito. Ahora coincide con el canal
+      // que crea usePushNotifications.js (mismo ID, misma configuración),
+      // para que dé igual cuál de los dos corra primero al abrir la app.
+      sound: 'default',
+      vibration: true,
     });
   } catch (err) {
     console.warn('[useGeofencing] Error creando canal de notificación:', err.message);
