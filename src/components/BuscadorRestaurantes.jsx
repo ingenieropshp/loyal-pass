@@ -18,66 +18,39 @@ const calcularNivel = (puntos = 0) => {
 
 /**
  * BuscadorRestaurantes — pantalla "home" después del login global.
+ *
+ * Muestra ÚNICAMENTE los restaurantes donde el cliente ya está inscrito
+ * (activo=true en `clientes`). Ya no existe una sección de "Descubre
+ * restaurantes" ni forma alguna de buscar/listar/unirse a un restaurante
+ * nuevo desde dentro de la app — la única forma de unirse a uno nuevo es
+ * el link/QR físico con `?restaurante_id=`, que App.jsx maneja por fuera
+ * de este componente (vía `sedeActual` + RegistrationForm).
+ *
  * Props:
  *   session   → sesión activa de Supabase Auth (App.jsx garantiza que
  *               este componente solo se monta cuando ya existe sesión).
  *   onLogout  → cierra sesión (mismo handler que usa UserDashboard).
  */
 export const BuscadorRestaurantes = ({ session, onLogout }) => {
-  const [restaurantes, setRestaurantes] = useState([]);
-  const [busqueda, setBusqueda]         = useState('');
-  const [cargando, setCargando]         = useState(true);
-  const [error, setError]               = useState(null);
-  const [mostrarPerfil, setMostrarPerfil] = useState(false);
-  // datos enriquecidos del cliente por sede: { [restauranteId]: { puntos, ciclos, nombre } }
+  // Restaurantes donde el cliente ya está inscrito: [{ id, nombre }].
+  // Se llena en cargarMisRestaurantes() — ya no se deriva de una lista
+  // pública de restaurantes (esa lista, y la query que la traía, se
+  // eliminaron por completo).
+  const [misRestaurantes, setMisRestaurantes] = useState([]);
+  // datos enriquecidos del cliente por sede: { [restauranteId]: { puntos, ciclos, nombre, clienteId } }
   const [datosPorSede, setDatosPorSede] = useState({});
+  const [cargando, setCargando] = useState(true);
+  const [mostrarPerfil, setMostrarPerfil] = useState(false);
+  // Buscador LOCAL dentro de "Mis restaurantes" — filtra en memoria el
+  // array `misRestaurantes` que ya está cargado, nunca dispara una
+  // consulta nueva a la base de datos.
+  const [busquedaMisRestaurantes, setBusquedaMisRestaurantes] = useState('');
 
   // Desvinculación voluntaria de un restaurante puntual ("No seguir este
   // restaurante") — ver fn_cliente_desvincula_restaurante en Supabase.
   const [restauranteADesvincular, setRestauranteADesvincular] = useState(null); // { id, nombre } | null
   const [desvinculando, setDesvinculando] = useState(false);
   const [errorDesvinculo, setErrorDesvinculo] = useState('');
-
-  // Modal de confirmación flexible antes de unirse a un restaurante nuevo
-  // (Módulo 6): el clic sobre una tarjeta NO inscrita ya no navega directo
-  // a "Crea tu perfil" — primero muestra este paso, cero invasivo, con
-  // salida clara ("Más tarde"/"✕") para quien solo estaba explorando.
-  const [restauranteAUnirse, setRestauranteAUnirse] = useState(null); // { id, nombre } | null
-
-  // FIX (pantalla completa bloqueada justo después de iniciar sesión):
-  // antes, la lista pública de restaurantes (query 1, sin RLS — cualquiera
-  // la lee) y "mis restaurantes" (query 2, requiere sesión) compartían un
-  // mismo try/catch y un mismo estado `error`, y el render de la lista
-  // entera estaba condicionado a `!error` (ver más abajo,
-  // `{!cargando && !error && (<lista>)}`). Si la query 2 fallaba por
-  // CUALQUIER motivo — incluido, justo después de un login recién hecho,
-  // que la primera petición autenticada salga antes de que el token nuevo
-  // termine de propagarse — se perdía TAMBIÉN la lista pública, que ya
-  // había cargado bien, y no había ningún botón real para reintentar pese
-  // a que el mensaje lo prometía ("Intenta de nuevo"). Ahora cada query
-  // tiene su propio manejo de error: si falla la 1 (la que de verdad
-  // bloquea, porque sin ella no hay nada que mostrar), se ve el error CON
-  // un botón de reintentar de verdad; si falla la 2, la lista se ve igual,
-  // solo sin el estado de "ya inscrito" en las tarjetas, con un reintento
-  // silencioso automático por si fue justo esa carrera del token.
-  const cargarRestaurantes = async () => {
-    setCargando(true);
-    setError(null);
-    try {
-      const { data, error: err } = await supabase
-        .from('configuracion')
-        .select('id, nombre')
-        .order('nombre', { ascending: true });
-      if (err) throw err;
-      setRestaurantes(data || []);
-    } catch (e) {
-      console.error('[BuscadorRestaurantes] Error cargando restaurantes:', e);
-      setError('No pudimos cargar los restaurantes.');
-      setCargando(false);
-      return;
-    }
-    setCargando(false);
-  };
 
   // ── Restaurantes donde el usuario YA está inscrito ──────────────────────
   // Antes esto se leía de localStorage (loyalpass_multisede), lo que
@@ -86,6 +59,12 @@ export const BuscadorRestaurantes = ({ session, onLogout }) => {
   // intactos en la base de datos. Ahora se consulta directamente por
   // `auth_user_id`, que es la cuenta global — así esta lista es la misma
   // sin importar desde dónde entre.
+  //
+  // Antes, el NOMBRE de cada restaurante salía de una lista pública aparte
+  // (cargarRestaurantes(), que traía TODA la tabla `configuracion` sin
+  // filtro — esa función ya no existe). Ahora esta función pide los
+  // nombres directamente con `.in(...)`, pero SOLO de los restaurantes
+  // donde el cliente ya está inscrito — nunca la tabla completa.
   const cargarMisRestaurantes = async (esReintento = false) => {
     try {
       const { data: clientesData, error: errCli } = await supabase
@@ -101,8 +80,31 @@ export const BuscadorRestaurantes = ({ session, onLogout }) => {
         .eq('activo', true);
       if (errCli) throw errCli;
 
+      const filas = clientesData || [];
+
+      // Sin restaurantes inscritos todavía: no hay nada que pedirle a
+      // `configuracion`, y la pantalla debe mostrar el estado vacío.
+      if (filas.length === 0) {
+        setDatosPorSede({});
+        setMisRestaurantes([]);
+        setCargando(false);
+        return;
+      }
+
+      // Nombres de las sedes inscritas — pedidos con `.in(id, [...])` para
+      // traer SOLO esos restaurantes puntuales, nunca la tabla completa.
+      const idsRestaurantes = [...new Set(filas.map(c => c.restaurante_id))];
+      const { data: sedesData, error: errSedes } = await supabase
+        .from('configuracion')
+        .select('id, nombre')
+        .in('id', idsRestaurantes);
+      if (errSedes) throw errSedes;
+
+      const nombrePorId = {};
+      (sedesData || []).forEach(s => { nombrePorId[s.id] = s.nombre; });
+
       const mapa = {};
-      (clientesData || []).forEach(c => {
+      filas.forEach(c => {
         mapa[c.restaurante_id] = {
           puntos:    c.saldo_puntos || 0,
           ciclos:    c.ciclos_completados || 0,
@@ -113,26 +115,39 @@ export const BuscadorRestaurantes = ({ session, onLogout }) => {
           clienteId: c.id,
         };
       });
+
       setDatosPorSede(mapa);
+      setMisRestaurantes(
+        idsRestaurantes.map(id => ({ id, nombre: nombrePorId[id] || '' }))
+      );
+      setCargando(false);
     } catch (e) {
       if (!esReintento) {
         // Un solo reintento, medio segundo después y sin avisarle nada al
         // usuario — cubre el caso de una petición autenticada disparada
-        // demasiado pronto después de un login recién hecho.
+        // demasiado pronto después de un login recién hecho (el token
+        // nuevo aún no terminó de propagarse).
         setTimeout(() => cargarMisRestaurantes(true), 600);
         return;
       }
-      // Ya reintentado y sigue fallando: no bloqueante — el usuario
-      // simplemente no ve todavía el estado de "ya inscrito" en sus
-      // tarjetas. Se deja pasar en silencio (con log) en vez de tumbarle
-      // la pantalla completa por un dato secundario.
+      // Ya reintentado y sigue fallando: se deja pasar en silencio (con
+      // log) en vez de tumbarle la pantalla completa por un problema de
+      // red puntual — el usuario verá el estado vacío hasta la próxima
+      // recarga.
       console.warn('[BuscadorRestaurantes] No se pudo cargar "mis restaurantes":', e?.message || e);
+      setCargando(false);
     }
   };
 
   useEffect(() => {
-    cargarRestaurantes();
-    if (session?.user?.id) cargarMisRestaurantes();
+    if (session?.user?.id) {
+      cargarMisRestaurantes();
+    } else {
+      // Defensivo: App.jsx solo monta este componente con sesión activa,
+      // pero si por algún motivo no la hay, no dejamos el spinner de
+      // carga girando para siempre.
+      setCargando(false);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.user?.id]);
 
@@ -181,6 +196,7 @@ export const BuscadorRestaurantes = ({ session, onLogout }) => {
         delete copia[restauranteADesvincular.id];
         return copia;
       });
+      setMisRestaurantes((prev) => prev.filter(r => r.id !== restauranteADesvincular.id));
       setRestauranteADesvincular(null);
     } catch (err) {
       console.error('[BuscadorRestaurantes] Error al desvincular restaurante:', err);
@@ -190,36 +206,6 @@ export const BuscadorRestaurantes = ({ session, onLogout }) => {
     }
   };
 
-  // ── Unirse a un restaurante nuevo (Módulo 6) ────────────────────────────
-  // El clic en una tarjeta de "Descubre restaurantes" NO inscrita ya no
-  // navega directo — primero pasa por aquí, para que el usuario decida con
-  // control total (mismo criterio de fricción-cero que ya se usa para
-  // desvincularse, pero en la dirección contraria).
-  const solicitarUnion = (restaurante) => {
-    setRestauranteAUnirse(restaurante);
-  };
-
-  const cancelarUnion = () => {
-    setRestauranteAUnirse(null);
-  };
-
-  const confirmarUnion = () => {
-    if (!restauranteAUnirse) return;
-    // irA() ya es una navegación real de browser (window.location.href), no
-    // solo un cambio de estado en memoria — así que el botón físico de
-    // "Atrás" de Android ya funciona correctamente aquí sin necesitar
-    // @capacitor/app: el bridge de Capacitor intercepta el back button y
-    // llama a WebView.goBack() por defecto cuando hay historial de
-    // navegación real que recorrer, que es justo lo que esto genera.
-    irA(restauranteAUnirse.nombre);
-  };
-
-  const filtrados = restaurantes.filter(r =>
-    r.nombre?.toLowerCase().includes(busqueda.trim().toLowerCase())
-  );
-
-  const misRestaurantes = restaurantes.filter(r => !!datosPorSede[r.id]);
-
   // Igual que `misRestaurantes`, pero con el clienteId de cada sede
   // "pegado" — lo necesita SelectorNotificaciones para poder mandar el
   // cliente_id al guardar la suscripción push (ver push_subscriptions).
@@ -227,6 +213,13 @@ export const BuscadorRestaurantes = ({ session, onLogout }) => {
     ...r,
     clienteId: datosPorSede[r.id]?.clienteId ?? null,
   }));
+
+  // Filtro local (en memoria) por nombre — no dispara ninguna consulta
+  // nueva. El input que lo alimenta solo se muestra si hay más de 3
+  // restaurantes inscritos (ver JSX más abajo).
+  const misRestaurantesFiltrados = misRestaurantes.filter(r =>
+    r.nombre?.toLowerCase().includes(busquedaMisRestaurantes.trim().toLowerCase())
+  );
 
   return (
     <div style={styles.wrapper}>
@@ -243,7 +236,7 @@ export const BuscadorRestaurantes = ({ session, onLogout }) => {
           )}
         </div>
         <h1 style={styles.title}>LoyalPass<span style={styles.dot}>.</span></h1>
-        <p style={styles.subtitle}>Encuentra tu restaurante favorito</p>
+        <p style={styles.subtitle}>Tus restaurantes</p>
       </header>
 
       {mostrarPerfil && onLogout && (
@@ -262,16 +255,45 @@ export const BuscadorRestaurantes = ({ session, onLogout }) => {
         </div>
       )}
 
-      {/* Mis restaurantes (vista multi-sede enriquecida) */}
-      {misRestaurantes.length > 0 && (
+      {/* Mis restaurantes — única sección de la pantalla. Ya no existe
+          "Descubre restaurantes": la única forma de unirse a un
+          restaurante nuevo es el link/QR físico (?restaurante_id=), que
+          App.jsx maneja por fuera de este componente. */}
+      {cargando ? (
+        <div style={styles.loadingRow}>
+          <div className="loader-spinner" style={{ width: 16, height: 16, borderWidth: 2 }} />
+          <span>Cargando tus restaurantes…</span>
+        </div>
+      ) : misRestaurantes.length === 0 ? (
+        <p style={styles.empty}>
+          Aún no estás inscrito en ningún restaurante. Escanea el código QR en tu restaurante favorito para unirte.
+        </p>
+      ) : (
         <section style={styles.section}>
           <p style={styles.sectionTitle}>Mis restaurantes</p>
 
           {/* Selector de notificaciones por restaurante */}
           <SelectorNotificaciones restaurantes={misRestaurantesConCliente} />
 
+          {/* Buscador local: solo aparece si vale la pena (más de 3
+              restaurantes inscritos). Reutiliza los mismos estilos del
+              buscador que existía en "Descubre restaurantes" — no filtra
+              contra la base de datos, solo el array ya cargado. */}
+          {misRestaurantes.length > 3 && (
+            <div style={styles.searchWrap}>
+              <span style={styles.searchIcon}>🔍</span>
+              <input
+                type="text"
+                placeholder="Buscar por nombre…"
+                value={busquedaMisRestaurantes}
+                onChange={(e) => setBusquedaMisRestaurantes(e.target.value)}
+                style={styles.searchInput}
+              />
+            </div>
+          )}
+
           <div style={styles.list}>
-            {misRestaurantes.map(r => {
+            {misRestaurantesFiltrados.map(r => {
               const datos = datosPorSede[r.id];
               const nivel = datos ? calcularNivel(datos.puntos) : null;
               return (
@@ -316,88 +338,6 @@ export const BuscadorRestaurantes = ({ session, onLogout }) => {
         </section>
       )}
 
-      {/* Buscador */}
-      <section style={styles.section}>
-        <p style={styles.sectionTitle}>Descubre restaurantes</p>
-        <div style={styles.searchWrap}>
-          <span style={styles.searchIcon}>🔍</span>
-          <input
-            type="text"
-            placeholder="Buscar por nombre…"
-            value={busqueda}
-            onChange={(e) => setBusqueda(e.target.value)}
-            style={styles.searchInput}
-          />
-        </div>
-
-        {cargando && (
-          <div style={styles.loadingRow}>
-            <div className="loader-spinner" style={{ width: 16, height: 16, borderWidth: 2 }} />
-            <span>Cargando restaurantes…</span>
-          </div>
-        )}
-
-        {error && (
-          <div className="error-alert" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
-            <span>⚠️ {error}</span>
-            {/* FIX: el texto ya decía "Intenta de nuevo" pero no existía ningún
-                botón — la única forma de reintentar era cerrar y reabrir la app. */}
-            <button
-              type="button"
-              onClick={cargarRestaurantes}
-              style={{
-                background: 'transparent',
-                border: '1px solid currentColor',
-                borderRadius: 8,
-                padding: '4px 10px',
-                fontSize: '0.75rem',
-                fontWeight: 700,
-                color: 'inherit',
-                cursor: 'pointer',
-                flexShrink: 0,
-              }}
-            >
-              Reintentar
-            </button>
-          </div>
-        )}
-
-        {!cargando && !error && (
-          <div style={styles.list}>
-            {filtrados.length === 0 ? (
-              <p style={styles.empty}>No encontramos restaurantes con "{busqueda}".</p>
-            ) : (
-              filtrados.map(r => {
-                const datos    = datosPorSede[r.id];
-                const inscrito = !!datos;
-                const nivel    = datos ? calcularNivel(datos.puntos) : null;
-                return (
-                  <button key={r.id} onClick={() => (inscrito ? irA(r.nombre) : solicitarUnion(r))}
-                    style={inscrito ? { ...styles.card, ...styles.cardMine } : styles.card}>
-                    <div style={styles.cardLeft}>
-                      <div style={inscrito ? { ...styles.avatar, ...styles.avatarMine } : styles.avatar}>
-                        {r.nombre?.charAt(0).toUpperCase()}
-                      </div>
-                      <div>
-                        <div style={styles.cardName}>{r.nombre}</div>
-                        {datos ? (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3 }}>
-                            <span style={styles.badge}>{nivel.emoji} {nivel.label} · {datos.puntos} pts</span>
-                          </div>
-                        ) : (
-                          <div style={styles.cardHint}>Toca para inscribirte</div>
-                        )}
-                      </div>
-                    </div>
-                    <span style={styles.arrow}>→</span>
-                  </button>
-                );
-              })
-            )}
-          </div>
-        )}
-      </section>
-
       <footer style={styles.footer}>LoyalPass v2.9</footer>
 
       {restauranteADesvincular && (
@@ -425,45 +365,6 @@ export const BuscadorRestaurantes = ({ session, onLogout }) => {
                 style={styles.btnConfirmarBaja}
               >
                 {desvinculando ? 'Desvinculando…' : 'Confirmar baja'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {restauranteAUnirse && (
-        <div style={styles.modalOverlay} onClick={cancelarUnion}>
-          <div style={{ ...styles.modal, position: 'relative' }} onClick={(e) => e.stopPropagation()}>
-            <button
-              type="button"
-              onClick={cancelarUnion}
-              aria-label="Cerrar"
-              style={styles.modalCerrarX}
-            >
-              ✕
-            </button>
-            <h3 style={{ ...styles.modalTitulo, marginTop: '0.5rem' }}>
-              ¿Unirte a {restauranteAUnirse.nombre}?
-            </h3>
-            <p style={styles.modalTexto}>
-              Crea tu perfil en este restaurante y recibe <strong>+500 pts</strong> de bono de
-              bienvenida al instante. Desde ahí acumulas puntos por cada consumo y por estar
-              cerca del local.
-            </p>
-            <div style={styles.modalAcciones}>
-              <button
-                type="button"
-                onClick={cancelarUnion}
-                style={styles.btnMasTarde}
-              >
-                Más tarde
-              </button>
-              <button
-                type="button"
-                onClick={confirmarUnion}
-                style={styles.btnCancelarDorado}
-              >
-                Unirme y ganar +500 pts
               </button>
             </div>
           </div>
@@ -589,7 +490,6 @@ const styles = {
     fontSize: '0.95rem',
     fontFamily: 'var(--font-display)',
   },
-  cardHint:   { fontSize: '0.75rem', color: 'var(--text)', opacity: 0.7, marginTop: 2 },
   badge:      { fontSize: '0.72rem', color: 'var(--coral)', fontWeight: 600 },
   ciclosBadge: {
     fontSize: '0.68rem',
@@ -697,42 +597,6 @@ const styles = {
     fontSize: '0.85rem',
     fontFamily: 'var(--font-display)',
     letterSpacing: '0.02em',
-    cursor: 'pointer',
-  },
-
-  // Botón "✕" en la esquina superior izquierda del modal de unión (Módulo
-  // 6) — salida explícita además de tocar fuera del modal, tal como se
-  // pidió.
-  modalCerrarX: {
-    position: 'absolute',
-    top: 12,
-    left: 12,
-    width: 30,
-    height: 30,
-    borderRadius: '50%',
-    background: 'rgba(245,245,220,0.08)',
-    border: '1px solid var(--border)',
-    color: 'var(--text)',
-    fontSize: '0.9rem',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    cursor: 'pointer',
-    lineHeight: 1,
-  },
-  // "Más tarde" — salida neutra para quien solo estaba explorando; a
-  // diferencia de btnConfirmarBaja (rojo/bronce) esto no debe leerse como
-  // una acción destructiva ni de advertencia.
-  btnMasTarde: {
-    flex: 1,
-    padding: 12,
-    background: 'transparent',
-    color: 'var(--text)',
-    border: '1px solid var(--border)',
-    borderRadius: 'var(--r-md)',
-    fontWeight: 700,
-    fontSize: '0.85rem',
-    fontFamily: 'var(--font-body)',
     cursor: 'pointer',
   },
 };

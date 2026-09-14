@@ -519,7 +519,9 @@ function App() {
   // Este es el cambio central del flujo nuevo: antes, cada restaurante tenía
   // su propio formulario de registro. Ahora la cuenta (Supabase Auth) es
   // ÚNICA y global — se crea/inicia sesión UNA sola vez, antes de llegar a
-  // "Descubre restaurantes".
+  // "Mis restaurantes" (BuscadorRestaurantes.jsx; ya no existe una sección
+  // de "Descubre restaurantes" — desde ahí el cliente solo ve los
+  // restaurantes donde ya está inscrito).
   //
   // Si el usuario entró por un link/QR directo de un restaurante
   // (?restaurante_id=... o ?r=...) y aún no tiene sesión, seguimos esperando (spinner) a que `sedeActual`
